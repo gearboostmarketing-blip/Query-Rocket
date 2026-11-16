@@ -106,9 +106,11 @@ def fake_ai(model, system, prompt, tool, max_tokens=0):
                             "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
 class Base(TestCase):
     def setUp(self):
+        # Run background jobs instantly inside the test instead of sending them to the real queue.
+        from queryrocket.celery import app as celery_app
+        self.addCleanup(setattr, celery_app.conf, "task_always_eager", celery_app.conf.task_always_eager)
+        celery_app.conf.task_always_eager = True
         cache.clear()
-        crawler.TRANSPORT = httpx.MockTransport(site_handler)
-        self.site = Site.objects.create(name="Joe's Auto", url=f"{BASE}/")
 
     def tearDown(self):
         crawler.TRANSPORT = None
