@@ -1,0 +1,14 @@
+{% autoescape off %}Query Rocket weekly report
+{% for r in rows %}
+{{ r.site.name }}
+  Fixes applied: {{ r.applied }} ({{ r.by_autopilot }} by autopilot)
+  Rolled back: {{ r.reverted }}{% if r.unverified %}
+  Applied but not showing on the live site: {{ r.unverified }}{% endif %}
+  Improved results: {{ r.improved }}{% for f in r.worse %}
+  Hurt results: {{ f.get_kind_display }} on {{ f.page.path }}. {{ f.outcome.summary }}{% endfor %}
+  Waiting for you: {{ r.waiting }}
+  Critical issues: {{ r.critical }}{% if r.perf and r.perf.has_search %}
+  Clicks, last 28 days: {{ r.perf.now.clicks }}{% if r.perf.clicks_change is not None %} ({{ r.perf.clicks_change }}%){% endif %}{% endif %}
+{% endfor %}
+{% if domain %}https://{{ domain }}/fixes/{% endif %}
+{% endautoescape %}

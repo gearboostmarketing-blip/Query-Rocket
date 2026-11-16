@@ -1,0 +1,40 @@
+{% extends "core/base.html" %}
+{% block title %}{{ heading }} · {{ site.name }}{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{% url 'dashboard' %}">All sites</a> / <a href="{% url 'site_detail' site.id %}">{{ site.name }}</a></div>
+<div class="page-head">
+  <div>
+    <h1>{{ heading }}</h1>
+    {% if code and rule_info %}
+    <p class="sub">{{ rule_info.summary }} <a href="{{ rule_info.url }}" target="_blank" rel="noopener">Read the {% if rule_info.tier == "google" %}Google{% else %}Rank Math{% endif %} guidance</a>.</p>
+    {% endif %}
+  </div>
+  {% if code %}<a class="btn btn-ghost" href="{% url 'site_issues' site.id %}">Show all issues</a>{% endif %}
+</div>
+
+{% if issues.object_list %}
+<div class="table-wrap">
+  <table>
+    <thead><tr><th></th><th>Page</th><th>Issue</th><th>Rule</th></tr></thead>
+    <tbody>
+    {% for i in issues %}
+    <tr>
+      <td style="width:18px"><i class="dot {{ i.severity }}" title="{{ i.get_severity_display }}"></i></td>
+      <td class="cell-url">{% if i.page %}<a href="{% url 'page_detail' i.page.id %}">{{ i.page.path }}</a>{% endif %}</td>
+      <td>{{ i.title }}{% if i.detail %}<div class="muted small" style="white-space:pre-wrap;max-width:520px;overflow-wrap:anywhere">{{ i.detail|truncatechars:280 }}</div>{% endif %}</td>
+      <td><span class="rule-chip {% if 'google' in i.rule %}google{% else %}rankmath{% endif %}">{% if 'google' in i.rule %}Google{% else %}Rank Math{% endif %}</span></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if issues.has_other_pages %}
+<div class="pager"><span>Page {{ issues.number }} of {{ issues.paginator.num_pages }}</span><span>
+  {% if issues.has_previous %}<a class="btn btn-ghost" href="?code={{ code }}&p={{ issues.previous_page_number }}">Previous</a>{% endif %}
+  {% if issues.has_next %}<a class="btn btn-ghost" href="?code={{ code }}&p={{ issues.next_page_number }}">Next</a>{% endif %}
+</span></div>
+{% endif %}
+{% else %}
+<div class="panel empty"><h2>Nothing to fix here</h2><p class="muted">No issues of this kind on the last crawl.</p></div>
+{% endif %}
+{% endblock %}

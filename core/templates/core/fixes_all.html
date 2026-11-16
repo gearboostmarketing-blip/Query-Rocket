@@ -1,0 +1,13 @@
+{% extends "core/base.html" %}
+{% block title %}Fix queue{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Fix queue</h1><p class="sub">Fixes waiting for your decision, by site.</p></div></div>
+<div class="panel site-list">
+  {% for s in sites %}
+  <a class="site-row" href="{% url 'site_fixes' s.id %}" style="grid-template-columns:1fr auto">
+    <span><span class="name">{{ s.name }}</span><br><span class="dom">{{ s.domain }}</span></span>
+    <span class="{% if s.waiting %}count-pill{% else %}muted small{% endif %}">{% if s.waiting %}{{ s.waiting }} waiting{% else %}Nothing waiting{% endif %}</span>
+  </a>
+  {% empty %}<div class="empty"><p class="muted">Add a site first.</p></div>{% endfor %}
+</div>
+{% endblock %}

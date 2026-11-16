@@ -1,0 +1,60 @@
+{% extends "core/base.html" %}
+{% block title %}WordPress connection · {{ site.name }}{% if conn.is_connected %}
+<form method="post" class="panel" style="margin-top:18px">{% csrf_token %}<input type="hidden" name="builder" value="1">
+  <div class="panel-head"><h2>Page builder edits{% if conn.builder %} (Oxygen detected){% endif %}</h2></div>
+  <p class="muted" style="max-width:70ch">Lets fixes change image alt text and broken links inside Oxygen page data, where most of this site's content lives. The page's entire builder data is backed up before each edit, and rollback restores it exactly. Link fixes still always need your approval.</p>
+  <dl class="facts" style="margin-bottom:16px">
+    <dt>WordPress switch</dt><dd>{% if conn.builder_allowed_wp %}On{% else %}Off. Turn on in WordPress under Settings → Query Rocket, then test the connection above.{% endif %}</dd>
+    <dt>Your track record</dt><dd>{{ alt_trust.approved }} image alt fixes approved, {% widthratio alt_trust.rate 1 100 %}% approval{% if not alt_trust.unlocked %}. Unlocks at 10 approved with 90% or better.{% else %}. Unlocked.{% endif %}</dd>
+  </dl>
+  <label class="check"><input type="checkbox" name="allow_builder" {% if conn.allow_builder %}checked{% endif %} {% if not alt_trust.unlocked %}disabled{% endif %}> Allow Query Rocket to edit Oxygen page data on {{ site.domain }}</label>
+  <button class="btn btn-primary" type="submit" {% if not alt_trust.unlocked %}disabled{% endif %}>Save</button>
+  {% if conn.allow_builder and not conn.builder_allowed_wp %}<p class="small" style="color:var(--orange);margin:12px 0 0">On here, but still off in WordPress, so nothing will change yet.</p>{% endif %}
+</form>
+{% endif %}
+{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{% url 'dashboard' %}">All sites</a> / <a href="{% url 'site_detail' site.id %}">{{ site.name }}</a></div>
+<div class="page-head"><div><h1>WordPress connection</h1><p class="sub">The Query Rocket Connector plugin applies approved fixes through {{ conn.seo_plugin|default:"Rank Math or Yoast"|capfirst }}, and keeps a record of every change so it can be rolled back.</p></div></div>
+
+<div class="grid-2">
+  <form method="post" class="panel">{% csrf_token %}
+    <div class="panel-head"><h2>{% if conn.is_connected %}Connected{% else %}Connect this site{% endif %}</h2></div>
+    {% if conn.is_connected %}
+      <dl class="facts" style="margin-bottom:16px">
+        <dt>SEO plugin</dt><dd>{% if conn.seo_plugin == "rankmath" %}Rank Math{% elif conn.seo_plugin == "yoast" %}Yoast{% else %}None found (the connector handles titles and descriptions itself){% endif %}</dd>
+        <dt>Connector</dt><dd>Version {{ conn.plugin_version }} on WordPress {{ conn.wp_version }}</dd>
+        <dt>Last check</dt><dd>{{ conn.last_ok_at|timesince }} ago</dd>
+      </dl>
+    {% elif conn.last_error %}<div class="flash error">{{ conn.last_error }}</div>{% endif %}
+    <div class="field">
+      <label for="key">Connection key</label>
+      <input type="password" name="key" id="key" autocomplete="off" placeholder="{% if conn.secret_enc %}Saved. Paste a new key to replace it.{% else %}Paste the key from Settings → Query Rocket{% endif %}">
+    </div>
+    <button class="btn btn-primary" type="submit">{% if conn.secret_enc %}Test connection{% else %}Connect{% endif %}</button>
+  </form>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Setup</h2></div>
+    <ol class="steps">
+      <li>Install the <b>Query Rocket Connector</b> plugin on {{ site.domain }} (Plugins → Add New → Upload, using <code>query-rocket-connector.zip</code>) and activate it.</li>
+      <li>In WordPress, open <b>Settings → Query Rocket</b> and copy the connection key.</li>
+      <li>Paste it here and connect. Query Rocket reads each page's SEO fields right away, and again after every crawl.</li>
+    </ol>
+    <p class="muted small" style="margin:0">If the connection is refused, a security plugin (Wordfence, Sucuri) or Cloudflare rule may be blocking the WordPress REST API for outside requests.</p>
+  </section>
+</div>
+{% if conn.is_connected %}
+<form method="post" class="panel" style="margin-top:18px">{% csrf_token %}<input type="hidden" name="builder" value="1">
+  <div class="panel-head"><h2>Page builder edits{% if conn.builder %} (Oxygen detected){% endif %}</h2></div>
+  <p class="muted" style="max-width:70ch">Lets fixes change image alt text and broken links inside Oxygen page data, where most of this site's content lives. The page's entire builder data is backed up before each edit, and rollback restores it exactly. Link fixes still always need your approval.</p>
+  <dl class="facts" style="margin-bottom:16px">
+    <dt>WordPress switch</dt><dd>{% if conn.builder_allowed_wp %}On{% else %}Off. Turn on in WordPress under Settings → Query Rocket, then test the connection above.{% endif %}</dd>
+    <dt>Your track record</dt><dd>{{ alt_trust.approved }} image alt fixes approved, {% widthratio alt_trust.rate 1 100 %}% approval{% if not alt_trust.unlocked %}. Unlocks at 10 approved with 90% or better.{% else %}. Unlocked.{% endif %}</dd>
+  </dl>
+  <label class="check"><input type="checkbox" name="allow_builder" {% if conn.allow_builder %}checked{% endif %} {% if not alt_trust.unlocked %}disabled{% endif %}> Allow Query Rocket to edit Oxygen page data on {{ site.domain }}</label>
+  <button class="btn btn-primary" type="submit" {% if not alt_trust.unlocked %}disabled{% endif %}>Save</button>
+  {% if conn.allow_builder and not conn.builder_allowed_wp %}<p class="small" style="color:var(--orange);margin:12px 0 0">On here, but still off in WordPress, so nothing will change yet.</p>{% endif %}
+</form>
+{% endif %}
+{% endblock %}

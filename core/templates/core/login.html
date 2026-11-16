@@ -1,0 +1,16 @@
+{% extends "core/base.html" %}
+{% block title %}Log in{% endblock %}
+{% block body %}
+<div class="login">
+  <div class="panel">
+    <div class="brand">{% include "core/_mark.html" %}<span class="brand-name">Query Rocket<span class="brand-by">by GearBoost</span></span></div>
+    {% if form.non_field_errors %}<div class="flash error">{% for e in form.non_field_errors %}{% if "Too many" in e %}{{ e }}{% else %}That username and password didn't match.{% endif %}{% endfor %}</div>{% endif %}
+    <form method="post">{% csrf_token %}
+      <div class="field"><label for="id_username">Username</label><input type="text" name="username" id="id_username" autocomplete="username" autofocus required></div>
+      <div class="field"><label for="id_password">Password</label><input type="password" name="password" id="id_password" autocomplete="current-password" required></div>
+      <input type="hidden" name="next" value="{{ next }}">
+      <button class="btn btn-primary" style="width:100%" type="submit">Log in</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

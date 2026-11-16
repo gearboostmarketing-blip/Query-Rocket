@@ -1,0 +1,79 @@
+{% extends "core/base.html" %}
+{% load humanize %}
+{% block title %}{{ page.path }} · {{ site.name }}{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{% url 'dashboard' %}">All sites</a> / <a href="{% url 'site_detail' site.id %}">{{ site.name }}</a></div>
+<div class="page-head">
+  <div style="min-width:0">
+    <h1 style="overflow-wrap:anywhere">{{ page.path }}</h1>
+    <p class="sub">{% if page.page_type %}{{ page.get_page_type_display }} page{% if page.topic %} about {{ page.topic|lower }}{% endif %}{% if page.classified_by == "rules" %} (guessed from the URL){% endif %}.{% endif %} <a href="{{ page.url }}" target="_blank" rel="noopener">Open live page</a></p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <section class="panel">
+    <div class="panel-head"><h2>How it looks in Google</h2></div>
+    {% if page.title or page.meta_description %}
+    <div class="serp">
+      <div class="s-url">{{ site.domain }}{{ page.path }}</div>
+      <div class="s-title">{{ page.title|default:"(no title)" }}</div>
+      <div class="s-desc">{{ page.meta_description|default:"No meta description, so Google will pull text from the page." }}</div>
+    </div>
+    <div class="meter">Title width {{ title_px }}px of about {{ title_max }}px<div class="bar"><span class="{% if title_px > title_max %}over{% endif %}" style="width:{{ title_pct }}%"></span></div></div>
+    <div class="meter">Description width {{ desc_px }}px of about {{ desc_max }}px<div class="bar"><span class="{% if desc_px > desc_max %}over{% endif %}" style="width:{{ desc_pct }}%"></span></div></div>
+    {% else %}
+    <p class="muted">No title or description found on this URL.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Issues</h2><span class="muted small">{{ issues|length }}</span></div>
+    {% for i in issues %}
+    <div class="issue-item">
+      <div class="it"><i class="dot {{ i.obj.severity }}"></i>{{ i.obj.title }}</div>
+      <div style="margin-top:6px"><a class="rule-chip {{ i.rule_info.tier }}" href="{{ i.rule_info.url }}" target="_blank" rel="noopener">{{ i.rule_info.name }}</a></div>
+      {% if i.obj.detail %}<pre>{{ i.obj.detail }}</pre>{% endif %}
+    </div>
+    {% empty %}
+    <p class="muted">No issues on this page.</p>
+    {% endfor %}
+  </section>
+</div>
+
+
+<section class="panel" style="margin-bottom:18px">
+  <div class="panel-head"><h2>Search Console, last 28 days</h2>
+    <span class="muted small">{{ stats.search.clicks|intcomma }} clicks, {{ stats.search.impressions|intcomma }} impressions{% if stats.search.position %}, average position {{ stats.search.position }}{% endif %}{% if stats.ga.sessions %}, {{ stats.ga.sessions|intcomma }} organic sessions{% endif %}</span></div>
+  {% if stats.queries %}
+  <div class="table-wrap"><table><thead><tr><th>Search</th><th class="num">Position</th><th class="num">Impressions</th><th class="num">Clicks</th></tr></thead>
+  <tbody>{% for q in stats.queries %}<tr><td>{{ q.query }}</td><td class="num">{{ q.position|floatformat:1 }}</td><td class="num">{{ q.impressions|intcomma }}</td><td class="num">{{ q.clicks|intcomma }}</td></tr>{% endfor %}</tbody></table></div>
+  {% else %}<p class="muted" style="margin:0">No search data for this URL yet.</p>{% endif %}
+</section>
+<div class="grid-2">
+  <section class="panel">
+    <div class="panel-head"><h2>What we found</h2></div>
+    <dl class="facts">
+      <dt>Status</dt><dd>{% if page.blocked_by_robots %}Blocked by robots.txt{% else %}{{ page.status_code|default:"No response" }}{% if page.redirect_to %}, redirects to <a href="{{ page.redirect_to }}" target="_blank" rel="noopener">{{ page.redirect_to }}</a>{% endif %}{% endif %}</dd>
+      {% if page.response_ms %}<dt>Response time</dt><dd>{{ page.response_ms|intcomma }} ms</dd>{% endif %}
+      <dt>In sitemap</dt><dd>{{ page.in_sitemap|yesno:"Yes,No" }}</dd>
+      <dt>Robots meta</dt><dd>{{ page.meta_robots|default:"None (indexable)" }}</dd>
+      <dt>Canonical</dt><dd>{% if not page.canonical %}None{% elif page.canonical == page.url %}Points to itself{% else %}{{ page.canonical }}{% endif %}</dd>
+      <dt>Words</dt><dd>{{ page.word_count|intcomma }}</dd>
+      <dt>Images</dt><dd>{{ page.image_count }}{% if page.images_missing_alt %}, {{ page.images_missing_alt|length }} missing alt text{% endif %}</dd>
+      <dt>Links in</dt><dd>{{ page.inbound_link_count }} internal page{{ page.inbound_link_count|pluralize }} link here</dd>
+      <dt>Links out</dt><dd>{{ page.internal_links|length }} internal, {{ page.external_link_count }} external</dd>
+      <dt>Structured data</dt><dd>{% if page.schema_types %}<div class="chips">{% for t in page.schema_types %}<span class="chip">{{ t }}</span>{% endfor %}</div>{% else %}None{% endif %}</dd>
+      {% if page.seo_plugin %}<dt>SEO plugin</dt><dd>{{ page.seo_plugin }}</dd>{% endif %}
+      {% if page.suggested_focus_query %}<dt>Likely search</dt><dd>{{ page.suggested_focus_query }}</dd>{% endif %}
+      {% if page.intent %}<dt>Search intent</dt><dd>{{ page.get_intent_display }}</dd>{% endif %}
+    </dl>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Heading outline</h2></div>
+    {% if page.headings %}
+    <ul class="outline">{% for h in page.headings %}<li class="l{{ h.level }}"><b>H{{ h.level }}</b>{{ h.text }}</li>{% endfor %}</ul>
+    {% else %}<p class="muted">No H1 to H3 headings found.</p>{% endif %}
+  </section>
+</div>
+{% endblock %}

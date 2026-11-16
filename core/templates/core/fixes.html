@@ -1,0 +1,88 @@
+{% extends "core/base.html" %}
+{% block title %}Fixes · {{ site.name }}{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{% url 'dashboard' %}">All sites</a> / <a href="{% url 'site_detail' site.id %}">{{ site.name }}</a></div>
+<div class="page-head">
+  <div>
+    <h1>Fixes</h1>
+    <p class="sub">Every change is written by AI, checked by code, and reviewed by a second AI before it reaches you.{% if not connected %} Approved fixes wait here until the WordPress plugin is connected.{% endif %}</p>
+  </div>
+  <form method="post" action="{% url 'fixes_generate' site.id %}">{% csrf_token %}<button class="btn btn-primary" type="submit" {% if not ai_enabled %}disabled{% endif %}>Find new fixes</button></form>
+</div>
+
+<nav class="tabs" aria-label="Fix status">
+  {% for key, n in counts.items %}
+  <a href="?tab={{ key }}" class="{% if tab == key %}on{% endif %}">{% if key == "waiting" %}Waiting for you{% elif key == "live" %}Approved and live{% elif key == "rejected" %}Rejected{% else %}Rolled back or failed{% endif %} <span>{{ n }}</span></a>
+  {% endfor %}
+</nav>
+
+{% if kinds|length > 1 or kind %}
+<div class="filters">
+  <span class="seg"><a href="?tab={{ tab }}" class="{% if not kind %}on{% endif %}">All types</a>{% for k in kinds %}<a href="?tab={{ tab }}&kind={{ k.key }}" class="{% if kind == k.key %}on{% endif %}">{{ k.label }} ({{ k.n }})</a>{% endfor %}</span>
+</div>
+{% endif %}
+
+{% if tab == "waiting" and fixes %}
+<form method="post" action="{% url 'fixes_bulk_approve' site.id %}" class="bulk">{% csrf_token %}
+  <input type="hidden" name="kind" value="{{ kind }}">
+  <span class="muted small">Only fixes that passed every check and the reviewer are approved in bulk.</span>
+  <button class="btn btn-ghost" type="submit">Approve all {% if kind %}shown{% else %}waiting{% endif %}</button>
+</form>
+{% endif %}
+
+{% for f in fixes %}{% with fix=f.obj %}
+<article class="fix" id="fix-{{ fix.id }}">
+  <header class="fix-head">
+    <span class="tag">{{ fix.get_kind_display }}</span>
+    <a href="{% url 'page_detail' fix.page_id %}" class="fix-page">{{ fix.page.path }}</a>
+    <span class="fix-meta">{% if fix.human_edited %}Edited by you. {% endif %}{% if fix.status != "proposed" %}{{ fix.get_status_display }}. {% endif %}Confidence {{ fix.confidence|floatformat:2 }}</span>
+  </header>
+
+  {% if fix.kind == "image_alt" %}
+    <div class="fix-img"><img src="{{ fix.target }}" alt="" loading="lazy" referrerpolicy="no-referrer"><span class="muted small url">{{ fix.target|truncatechars:90 }}</span></div>
+  {% elif fix.kind == "broken_link" %}
+    <p class="small muted" style="margin:0 0 8px">Broken link on this page: <span class="url">{{ fix.target }}</span></p>
+  {% endif %}
+
+  <div class="diff">
+    <div class="was"><span class="lbl">Now</span>{% if fix.kind == "schema_local_business" %}<span class="muted">No LocalBusiness markup</span>{% else %}{{ fix.old_value|default:"(empty)" }}{% endif %}</div>
+    <div class="will"><span class="lbl">Change to</span>{% if fix.kind == "schema_local_business" %}<pre>{{ fix.new_value }}</pre>{% elif fix.new_value == "REMOVE" %}Remove the link, keep the text{% else %}{{ fix.new_value }}{% endif %}</div>
+  </div>
+
+  <p class="why">{{ fix.rationale }}</p>
+  <div class="chips" style="margin-bottom:12px">{% for r in f.rules %}<a class="rule-chip {{ r.tier }}" href="{{ r.url }}" target="_blank" rel="noopener">{{ r.name }}</a>{% endfor %}</div>
+
+  <details class="checks">
+    <summary>{% if fix.passed_validation %}Passed {{ fix.validation|length }} checks{% else %}Failed a safety check{% endif %}{% if fix.reviewer_verdict %}, reviewer {% if fix.reviewer_verdict == "approve" %}approved{% else %}rejected{% endif %}{% endif %}</summary>
+    <ul>{% for c in fix.validation %}<li class="{% if c.ok %}ok{% elif c.hard %}bad{% else %}soft{% endif %}">{{ c.check }}{% if c.note %}<span class="muted"> ({{ c.note }})</span>{% endif %}</li>{% endfor %}</ul>
+    {% if fix.reviewer_notes %}<p class="small" style="margin:10px 0 0"><b style="color:var(--white)">Reviewer:</b> {{ fix.reviewer_notes|linebreaksbr }}</p>{% endif %}
+  </details>
+
+  {% if fix.error %}<div class="flash error" style="margin:12px 0 0">{{ fix.error }}</div>{% endif %}
+  {% if fix.outcome_status %}<p class="small" style="margin:10px 0 0">28-day result: <b style="color:var(--white)">{{ fix.outcome_status|capfirst }}</b>{% if fix.outcome.summary %}. {{ fix.outcome.summary }}{% endif %}</p>{% endif %}
+
+  <footer class="fix-actions">
+    {% if fix.status == "proposed" or fix.status == "rejected" %}
+      <form method="post" action="{% url 'fix_action' fix.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="action" value="approve"><button class="btn btn-primary" type="submit" {% if not fix.passed_validation %}disabled{% endif %}>{% if fix.status == "rejected" %}Approve anyway{% else %}Approve{% endif %}</button></form>
+    {% endif %}
+    {% if fix.status == "proposed" or fix.status == "approved" %}
+      <form method="post" action="{% url 'fix_action' fix.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="action" value="reject"><button class="btn btn-ghost" type="submit">Reject</button></form>
+    {% endif %}
+    {% if fix.status == "applied" or fix.status == "verified" %}
+      <form method="post" action="{% url 'fix_action' fix.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="action" value="rollback"><button class="btn btn-danger" type="submit">Roll back</button></form>
+    {% endif %}
+    {% if fix.status == "proposed" or fix.status == "rejected" %}{% if fix.kind != "schema_local_business" %}
+      <details class="edit"><summary class="btn btn-ghost">Edit</summary>
+        <form method="post" action="{% url 'fix_action' fix.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="action" value="edit">
+          <textarea name="value" rows="3">{{ fix.new_value }}</textarea><button class="btn btn-primary" type="submit">Save edit</button></form>
+      </details>
+    {% endif %}{% endif %}
+  </footer>
+</article>
+{% endwith %}{% empty %}
+<div class="panel empty">
+  {% if tab == "waiting" %}<h2>Nothing waiting</h2><p class="muted">{% if ai_enabled %}Run "Find new fixes" after a crawl to have Query Rocket write proposals.{% else %}Turn on AI (ANTHROPIC_API_KEY) to generate fixes.{% endif %}</p>
+  {% else %}<h2>Nothing here yet</h2>{% endif %}
+</div>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,52 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Query Rocket{% endblock %} · GearBoost</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600&family=Nunito+Sans:wght@700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'core/app.css' %}">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+</head>
+<body>
+{% block body %}
+<div class="shell">
+  <aside class="rail">
+    <a class="brand" href="{% url 'dashboard' %}">
+      {% include "core/_mark.html" %}
+      <span class="brand-name">Query Rocket<span class="brand-by">by GearBoost</span></span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="{% url 'dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}on{% endif %}">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+        All sites
+      </a>
+      <a href="{% url 'google_home' %}" class="{% if request.resolver_match.url_name == 'google_home' %}on{% endif %}">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 13l4-4 3 3 5-6"/><path d="M10 6h4v4"/></svg>
+        Google data
+      </a>
+      <a href="{% url 'all_fixes' %}" class="{% if request.resolver_match.url_name == 'all_fixes' %}on{% endif %}">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>
+        Fix queue{% if nav_waiting %}<span class="badge">{{ nav_waiting }}</span>{% endif %}
+      </a>
+      {% if nav_sites %}<div class="nav-label">Clients</div>{% endif %}
+      {% for s in nav_sites %}
+        <a class="site-link {% if site and site.id == s.id %}on{% endif %}" href="{% url 'site_detail' s.id %}">{{ s.name }}</a>
+      {% endfor %}
+    </nav>
+    <div class="rail-foot">
+      <span class="muted">{{ request.user.username }}</span><br>
+      <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="linkish" type="submit">Log out</button></form>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap">
+    {% for m in messages %}<div class="flash {{ m.tags }}" role="status">{{ m }}</div>{% endfor %}
+    {% block content %}{% endblock %}
+  </div></main>
+</div>
+{% endblock %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

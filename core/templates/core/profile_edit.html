@@ -1,0 +1,30 @@
+{% extends "core/base.html" %}
+{% block title %}Business profile · {{ site.name }}{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{% url 'dashboard' %}">All sites</a> / <a href="{% url 'site_detail' site.id %}">{{ site.name }}</a></div>
+<div class="page-head">
+  <div>
+    <h1>Business profile</h1>
+    <p class="sub">Query Rocket uses this for every title, description, and schema decision on {{ site.domain }}. Once you save it, recrawls won't overwrite it.</p>
+  </div>
+</div>
+{% if profile.notes and not site.profile_confirmed %}<div class="notice-bar"><span class="dot warning" style="margin-top:7px"></span><div>{{ profile.notes }}</div></div>{% endif %}
+<form method="post" class="panel" style="max-width:760px">{% csrf_token %}
+  {% for f in form %}
+    {% if f.name == "is_local_business" %}
+      <label class="check">{{ f }} {{ f.label }}</label>
+    {% else %}
+      <div class="field">
+        <label for="{{ f.id_for_label }}">{{ f.label }}</label>
+        {{ f }}
+        {% if f.help_text %}<span class="help">{{ f.help_text }}</span>{% endif %}
+        {% for e in f.errors %}<span class="err">{{ e }}</span>{% endfor %}
+      </div>
+    {% endif %}
+  {% endfor %}
+  <div style="display:flex;gap:10px;margin-top:8px">
+    <button class="btn btn-primary" type="submit">Save and confirm</button>
+    <a class="btn btn-ghost" href="{% url 'site_detail' site.id %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,225 @@
+{% extends "core/base.html" %}
+{% load humanize %}
+{% block title %}{{ site.name }}{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{% url 'dashboard' %}">All sites</a></div>
+<div class="page-head">
+  <div>
+    <h1>{{ site.name }}</h1>
+    <p class="sub"><a href="{{ site.url }}" target="_blank" rel="noopener">{{ site.domain }}</a>{% if plugins %}, running {{ plugins|join:" and " }}{% endif %}{% if site.last_crawled_at %}. Crawled {{ site.last_crawled_at|naturaltime }}.{% endif %}</p>
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+  <a class="btn btn-ghost" href="{% url 'site_connect' site.id %}">{% if connector and connector.is_connected %}WordPress connected{% else %}Connect WordPress{% endif %}</a>
+  <a class="btn btn-ghost" href="{% url 'site_autopilot' site.id %}">Autopilot {% if autopilot and autopilot.enabled %}on{% else %}off{% endif %}</a>
+  <a class="btn btn-ghost" href="{% url 'site_fixes' site.id %}">Fixes{% if fixes_waiting %} ({{ fixes_waiting }} waiting){% endif %}</a>
+  <form method="post" action="{% url 'site_crawl' site.id %}">{% csrf_token %}
+    <button class="btn btn-primary" type="submit" {% if active_crawl %}disabled{% endif %}>{% if active_crawl %}Crawling…{% else %}Crawl again{% endif %}</button>
+  </form>
+  </div>
+</div>
+
+{% if active_crawl %}
+<div class="crawl-strip" id="crawl-strip" data-status-url="{% url 'site_status' site.id %}">
+  <span id="crawl-stage">{{ active_crawl.stage|default:"Starting" }}</span>
+  <span class="track"><span></span></span>
+  <span class="muted" id="crawl-pages">{{ active_crawl.pages_crawled }} pages</span>
+</div>
+{% elif crawl and crawl.status == "failed" %}
+<div class="crawl-strip failed">The last crawl failed: {{ crawl.error|truncatechars:240 }}</div>
+{% endif %}
+
+{% if page_total %}
+<section class="health" aria-label="Issue summary">
+  <p class="health-line">
+    {% if issue_total %}
+      <strong>{{ totals.critical }} critical</strong>, <strong>{{ totals.warning }} warning{{ totals.warning|pluralize }}</strong> and {{ totals.notice }} notice{{ totals.notice|pluralize }} across {{ page_total|intcomma }} URLs.
+    {% else %}
+      No issues found across {{ page_total|intcomma }} URLs.
+    {% endif %}
+  </p>
+  {% if issue_total %}
+  <div class="health-bar" role="img" aria-label="{{ totals.critical }} critical, {{ totals.warning }} warnings, {{ totals.notice }} notices">
+    <span class="critical" style="width:{% widthratio totals.critical issue_total 100 %}%"></span>
+    <span class="warning" style="width:{% widthratio totals.warning issue_total 100 %}%"></span>
+    <span class="notice" style="width:{% widthratio totals.notice issue_total 100 %}%"></span>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+
+<section class="panel" style="margin-bottom:18px">
+  <div class="panel-head">
+    <h2>Search performance</h2>
+    <span class="small">{% if google_link and google_link.gsc_property %}<span class="muted">Last 28 days{% if google_link.last_synced_at %}, synced {{ google_link.last_synced_at|naturaltime }}{% endif %}.</span>
+      <form method="post" action="{% url 'site_google_sync' site.id %}" style="display:inline">{% csrf_token %}<button class="linkish" type="submit">Sync now</button></form> <span class="muted">or</span> <a href="{% url 'site_google' site.id %}">change properties</a>
+    {% endif %}</span>
+  </div>
+  {% if google_link and google_link.last_error %}<div class="flash error" style="margin-bottom:12px">{{ google_link.last_error }}</div>{% endif %}
+  {% if perf and perf.has_search %}
+  <div class="kpis">
+    <div><span class="k">Clicks</span><span class="v">{{ perf.now.clicks|intcomma }}</span>{% if perf.clicks_change is not None %}<span class="d {% if perf.clicks_change < 0 %}down{% else %}up{% endif %}">{% if perf.clicks_change > 0 %}+{% endif %}{{ perf.clicks_change }}%</span>{% endif %}</div>
+    <div><span class="k">Impressions</span><span class="v">{{ perf.now.impressions|intcomma }}</span>{% if perf.impr_change is not None %}<span class="d {% if perf.impr_change < 0 %}down{% else %}up{% endif %}">{% if perf.impr_change > 0 %}+{% endif %}{{ perf.impr_change }}%</span>{% endif %}</div>
+    <div><span class="k">Average position</span><span class="v">{{ perf.now.position|default:"–" }}</span></div>
+    {% if perf.has_ga %}
+    <div><span class="k">Organic sessions</span><span class="v">{{ perf.ga.sessions|intcomma }}</span>{% if perf.sessions_change is not None %}<span class="d {% if perf.sessions_change < 0 %}down{% else %}up{% endif %}">{% if perf.sessions_change > 0 %}+{% endif %}{{ perf.sessions_change }}%</span>{% endif %}</div>
+    <div><span class="k">Key events</span><span class="v">{{ perf.ga.key_events|floatformat:"-1" }}</span></div>
+    {% endif %}
+  </div>
+  {% if wins %}
+  <h3 style="margin:22px 0 4px">Closest wins</h3>
+  <p class="muted small" style="margin-bottom:10px">Searches this site already ranks 5 to 20 for. The fastest traffic gains are usually here.</p>
+  <div class="table-wrap">
+    <table><thead><tr><th>Search</th><th>Page</th><th class="num">Position</th><th class="num">Impressions</th><th class="num">Clicks</th></tr></thead>
+    <tbody>{% for w in wins %}<tr><td>{{ w.query }}</td><td class="cell-url"><span class="t" style="color:var(--text)">{{ w.path }}</span></td><td class="num">{{ w.position|floatformat:1 }}</td><td class="num">{{ w.impressions|intcomma }}</td><td class="num">{{ w.clicks|intcomma }}</td></tr>{% endfor %}</tbody></table>
+  </div>
+  {% endif %}
+  {% elif google_link and google_link.gsc_property %}
+  <p class="muted">Waiting for the first Google sync.</p>
+  {% else %}
+  <p class="muted" style="margin:0">Link Search Console and GA4 to see clicks, rankings, and organic conversions here. <a href="{% url 'site_google' site.id %}">Connect Google data</a></p>
+  {% endif %}
+</section>
+<div class="grid-2">
+  <section class="panel">
+    <div class="panel-head"><h2>What needs attention</h2><a class="small" href="{% url 'site_issues' site.id %}">See every issue</a></div>
+    {% if groups %}
+    <ul class="groups">
+      {% for g in groups %}
+      <li><a href="{% url 'site_issues' site.id %}?code={{ g.code }}">
+        <i class="dot {{ g.severity }}"></i>
+        <span>{{ g.label }}<span class="src">{{ g.rule_info.name }}</span></span>
+        <span class="n">{{ g.n }}</span>
+      </a></li>
+      {% endfor %}
+    </ul>
+    {% elif page_total %}
+    <p class="muted">Clean on every check we run. Nice.</p>
+    {% else %}
+    <p class="muted">Issues show up here after the first crawl.</p>
+    {% endif %}
+  </section>
+
+  <section class="understood" aria-label="Business profile">
+    <div class="kicker">What Query Rocket understood</div>
+    {% if profile.business_name or profile.business_type %}
+      <div class="biz">{{ profile.business_name|default:site.name }}</div>
+      <div class="biz-type">{{ profile.business_type|default:"Business type unknown" }}{% if profile.schema_type %} ({{ profile.schema_type }}){% endif %}</div>
+      <dl>
+        {% if profile.phone %}<dt>Phone</dt><dd>{{ profile.phone }}</dd>{% endif %}
+        {% if profile.address %}<dt>Address</dt><dd>{{ profile.address }}</dd>{% endif %}
+        {% if profile.hours %}<dt>Hours</dt><dd>{{ profile.hours }}</dd>{% endif %}
+        {% if profile.audience %}<dt>Customers</dt><dd>{{ profile.audience }}</dd>{% endif %}
+        {% if profile.services %}<dt>Services</dt><dd><div class="chips">{% for s in profile.services|slice:":12" %}<span class="chip">{{ s }}</span>{% endfor %}</div></dd>{% endif %}
+        {% if profile.service_areas %}<dt>Areas</dt><dd><div class="chips">{% for a in profile.service_areas|slice:":10" %}<span class="chip">{{ a }}</span>{% endfor %}</div></dd>{% endif %}
+      </dl>
+      {% if profile.notes and not site.profile_confirmed %}<div class="note">{{ profile.notes }}</div>{% endif %}
+      <div class="state">
+        {% if site.profile_confirmed %}
+          <span class="confirmed"><i class="dot" style="background:#22c55e"></i>Confirmed by you</span>
+          <a class="btn btn-ghost" href="{% url 'profile_edit' site.id %}">Edit</a>
+        {% else %}
+          <span class="unconfirmed"><i class="dot warning"></i>Not confirmed yet{% if profile.confidence %}, AI confidence {{ profile.confidence }}{% endif %}</span>
+          <a class="btn btn-primary" href="{% url 'profile_edit' site.id %}">Review and confirm</a>
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="biz">{{ site.name }}</div>
+      <p class="biz-type">{% if ai_enabled %}The business profile is built during the crawl.{% else %}Turn on AI to have Query Rocket read the site and build this profile, or fill it in yourself.{% endif %}</p>
+      <div class="state"><span></span><a class="btn btn-ghost" href="{% url 'profile_edit' site.id %}">Fill in manually</a></div>
+    {% endif %}
+  </section>
+</div>
+
+<section style="margin-top:28px">
+  <div class="panel-head"><h2>Pages</h2><span class="muted small">{{ page_obj.paginator.count|intcomma }} shown</span></div>
+  <form class="filters" method="get">
+    <input type="search" name="q" value="{{ filters.q }}" placeholder="Search URL or title" aria-label="Search pages">
+    <select name="type" aria-label="Page type" onchange="this.form.submit()">
+      <option value="">All page types</option>
+      {% for t in type_counts %}<option value="{{ t.key }}" {% if filters.type == t.key %}selected{% endif %}>{{ t.label }} ({{ t.n }})</option>{% endfor %}
+    </select>
+    <input type="hidden" name="show" value="{{ filters.show }}">
+    <span class="seg" role="group" aria-label="Show">
+      <a href="?q={{ filters.q|urlencode }}&type={{ filters.type }}" class="{% if not filters.show %}on{% endif %}">All</a>
+      <a href="?q={{ filters.q|urlencode }}&type={{ filters.type }}&show=problems" class="{% if filters.show == 'problems' %}on{% endif %}">With problems</a>
+      <a href="?q={{ filters.q|urlencode }}&type={{ filters.type }}&show=errors" class="{% if filters.show == 'errors' %}on{% endif %}">Errors</a>
+    </span>
+  </form>
+  {% if page_obj.object_list %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Page</th><th>Type</th><th class="num">Status</th><th class="num">Words</th><th>Issues</th></tr></thead>
+      <tbody>
+      {% for p in page_obj %}
+      <tr>
+        <td class="cell-url"><a href="{% url 'page_detail' p.id %}">{{ p.path }}</a><span class="t">{{ p.title|default:"No title" }}</span></td>
+        <td>{% if p.page_type %}<span class="tag" title="{% if p.classified_by == 'ai' %}Classified by AI{% else %}Guessed from URL{% endif %}">{{ p.get_page_type_display }}</span>{% endif %}</td>
+        <td class="num"><span class="status {% if p.status_code is None or p.status_code >= 400 %}bad{% elif p.redirect_to %}redir{% endif %}">{% if p.blocked_by_robots %}Blocked{% else %}{{ p.status_code|default:"Failed" }}{% endif %}</span></td>
+        <td class="num">{% if p.word_count %}{{ p.word_count|intcomma }}{% endif %}</td>
+        <td><span class="sev-counts">
+          {% if p.n_critical %}<span><i class="dot critical"></i>{{ p.n_critical }}</span>{% endif %}
+          {% if p.n_warning %}<span><i class="dot warning"></i>{{ p.n_warning }}</span>{% endif %}
+          {% if p.n_notice %}<span><i class="dot notice"></i>{{ p.n_notice }}</span>{% endif %}
+        </span></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page_obj.has_other_pages %}
+  <div class="pager">
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    <span>
+      {% if page_obj.has_previous %}<a class="btn btn-ghost" href="?q={{ filters.q|urlencode }}&type={{ filters.type }}&show={{ filters.show }}&p={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
+      {% if page_obj.has_next %}<a class="btn btn-ghost" href="?q={{ filters.q|urlencode }}&type={{ filters.type }}&show={{ filters.show }}&p={{ page_obj.next_page_number }}">Next</a>{% endif %}
+    </span>
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="panel empty"><h2>No pages here</h2><p class="muted">{% if filters.q or filters.type or filters.show %}Nothing matches these filters.{% else %}Pages appear after the first crawl finishes.{% endif %}</p></div>
+  {% endif %}
+</section>
+
+{% if recent_crawls %}
+<section class="panel" style="margin-top:28px">
+  <div class="panel-head"><h2>Crawl history</h2></div>
+  <div class="table-wrap" style="border:0;background:none">
+    <table>
+      <thead><tr><th>Started</th><th>Result</th><th class="num">URLs</th><th class="num">Issues</th><th>AI</th></tr></thead>
+      <tbody>{% for c in recent_crawls %}
+        <tr><td>{{ c.started_at|date:"M j, g:i a" }}</td><td>{{ c.get_status_display }}{% if c.duration %} <span class="muted">in {{ c.duration.seconds }}s</span>{% endif %}</td><td class="num">{{ c.pages_crawled }}</td><td class="num">{{ c.issues_found }}</td><td>{% if c.ai_used %}Used{% else %}<span class="muted">Off</span>{% endif %}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<details class="panel" style="margin-top:28px">
+  <summary style="cursor:pointer;color:var(--muted)">Remove this site</summary>
+  <form method="post" action="{% url 'site_delete' site.id %}" style="margin-top:14px;max-width:420px">{% csrf_token %}
+    <div class="field"><label for="confirm_name">Type <b>{{ site.name }}</b> to remove it and all its crawl data</label><input type="text" id="confirm_name" name="confirm_name" autocomplete="off"></div>
+    <button class="btn btn-danger" type="submit">Remove site</button>
+  </form>
+</details>
+{% endblock %}
+
+{% block scripts %}
+{% if active_crawl %}
+<script>
+(function () {
+  var strip = document.getElementById("crawl-strip");
+  var url = strip.dataset.statusUrl;
+  function tick() {
+    fetch(url, {credentials: "same-origin"}).then(function (r) { return r.json(); }).then(function (d) {
+      document.getElementById("crawl-stage").textContent = d.stage || "Working";
+      document.getElementById("crawl-pages").textContent = d.pages + " pages";
+      if (d.status === "done" || d.status === "failed") { window.location.reload(); }
+      else { setTimeout(tick, 3000); }
+    }).catch(function () { setTimeout(tick, 6000); });
+  }
+  setTimeout(tick, 2000);
+})();
+</script>
+{% endif %}
+{% endblock %}

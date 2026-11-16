@@ -1,0 +1,48 @@
+{% extends "core/base.html" %}
+{% load humanize %}
+{% block title %}All sites{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Client sites</h1>
+    <p class="sub">Every site Query Rocket watches. Nothing is changed on any site yet; this phase only reads and reports.</p>
+  </div>
+</div>
+
+{% if not ai_enabled %}
+<div class="notice-bar"><span class="dot warning" style="margin-top:7px"></span><div>AI is off because no Anthropic API key is set. Crawls and checks still run, and pages are sorted with URL rules instead of AI. Add <code>ANTHROPIC_API_KEY</code> to <code>.env</code> and restart to turn it on.</div></div>
+{% endif %}
+
+{% if sites %}
+<div class="panel site-list">
+  <div class="site-head"><span>Site</span><span>Pages</span><span>Issues</span><span>Last crawl</span></div>
+  {% for s in sites %}
+  <a class="site-row" href="{% url 'site_detail' s.id %}">
+    <span><span class="name">{{ s.name }}</span><br><span class="dom">{{ s.domain }}</span></span>
+    <span class="col-pages num">{{ s.page_total|intcomma }}</span>
+    <span class="sev-counts">
+      <span class="{% if not s.critical %}zero{% endif %}"><i class="dot critical"></i>{{ s.critical }}</span>
+      <span class="{% if not s.warning %}zero{% endif %}"><i class="dot warning"></i>{{ s.warning }}</span>
+      <span class="{% if not s.notice %}zero{% endif %}"><i class="dot notice"></i>{{ s.notice }}</span>
+    </span>
+    <span class="col-when muted small">{% if s.active_crawl %}<span class="running-pill">Crawling</span>{% elif s.last_crawled_at %}{{ s.last_crawled_at|naturaltime }}{% else %}Never{% endif %}</span>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="panel" style="margin-top:18px">
+  <div class="panel-head"><h2>{% if sites %}Add another site{% else %}Add your first site{% endif %}</h2></div>
+  <form method="post" class="inline-form" novalidate>{% csrf_token %}
+    {% for f in form %}
+    <div class="field">
+      <label for="{{ f.id_for_label }}">{{ f.label }}</label>
+      {{ f }}
+      {% for e in f.errors %}<span class="err">{{ e }}</span>{% endfor %}
+    </div>
+    {% endfor %}
+    <button class="btn btn-primary" type="submit">Add and crawl</button>
+  </form>
+  <p class="muted small" style="margin:12px 0 0">The first crawl starts right away. Most small business sites finish in a few minutes.</p>
+</div>
+{% endblock %}

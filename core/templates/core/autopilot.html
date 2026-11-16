@@ -1,0 +1,37 @@
+{% extends "core/base.html" %}
+{% block title %}Autopilot · {{ site.name }}{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{% url 'dashboard' %}">All sites</a> / <a href="{% url 'site_detail' site.id %}">{{ site.name }}</a></div>
+<div class="page-head">
+  <div><h1>Autopilot</h1><p class="sub">After each crawl, autopilot writes fixes and applies the ones you've taught it to trust. Everything else still waits for you.</p></div>
+  {% if ap.enabled %}<form method="post" action="{% url 'autopilot_run_now' site.id %}">{% csrf_token %}<button class="btn btn-ghost" type="submit">Run now</button></form>{% endif %}
+</div>
+
+{% if not connected %}<div class="notice-bar"><span class="dot warning" style="margin-top:7px"></span><div>Connect the WordPress plugin before turning on autopilot. <a href="{% url 'site_connect' site.id %}">Connect WordPress</a></div></div>{% endif %}
+
+<form method="post" class="panel">{% csrf_token %}
+  <label class="check" style="font-size:1.05rem;color:var(--white)"><input type="checkbox" name="enabled" {% if ap.enabled %}checked{% endif %} {% if not connected %}disabled{% endif %}> Autopilot on for {{ site.name }}</label>
+  {% if ap.last_run_summary %}<p class="muted small">Last run {{ ap.last_run_at|timesince }} ago: {{ ap.last_run_summary }}</p>{% endif %}
+
+  <h3 style="margin:18px 0 6px">What it may apply on its own</h3>
+  <p class="muted small">A type unlocks after you've approved at least 10 of them with 90% or better approval across all sites. Edits count against the score. Homepages, pinned pages, and broken links always wait for you.</p>
+  <div class="table-wrap" style="margin-bottom:16px">
+    <table>
+      <thead><tr><th></th><th>Fix type</th><th class="num">You approved</th><th class="num">Rejected</th><th class="num">Edited</th><th class="num">Score</th><th class="num">Hurt results</th></tr></thead>
+      <tbody>{% for k in kinds %}
+      <tr>
+        <td><input type="checkbox" name="kind_{{ k.key }}" {% if k.on %}checked{% endif %} {% if not k.trust.unlocked %}disabled{% endif %} aria-label="{{ k.label }}" style="accent-color:var(--purple)"></td>
+        <td>{{ k.label }}{% if not k.trust.unlocked %}<span class="muted small"> (approve {{ k.trust.needed|default:"more" }} more to unlock)</span>{% endif %}</td>
+        <td class="num">{{ k.trust.approved }}</td><td class="num">{{ k.trust.rejected }}</td><td class="num">{{ k.trust.edited }}</td>
+        <td class="num">{% if k.trust.approved or k.trust.rejected %}{% widthratio k.trust.rate 1 100 %}%{% else %}<span class="muted">–</span>{% endif %}</td>
+        <td class="num">{{ k.trust.worse }} of {{ k.trust.measured }}</td>
+      </tr>{% endfor %}</tbody>
+    </table>
+  </div>
+
+  <label class="check"><input type="checkbox" name="rewrite_existing" {% if ap.rewrite_existing %}checked{% endif %} {% if not title_trust.rewrite_unlocked and not meta_trust.rewrite_unlocked %}disabled{% endif %}> Also rewrite titles and descriptions that already exist <span class="muted small">(unlocks at 20 approvals and 95%)</span></label>
+  <label class="check"><input type="checkbox" name="auto_revert" {% if ap.auto_revert %}checked{% endif %}> Roll back autopilot fixes automatically if clicks drop after 28 days</label>
+  <div class="field" style="max-width:220px"><label for="max_per_run">Most fixes per run</label><input type="number" min="1" max="200" name="max_per_run" id="max_per_run" value="{{ ap.max_per_run }}"></div>
+  <button class="btn btn-primary" type="submit">Save</button>
+</form>
+{% endblock %}

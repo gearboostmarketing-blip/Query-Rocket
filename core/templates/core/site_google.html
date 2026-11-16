@@ -1,0 +1,38 @@
+{% extends "core/base.html" %}
+{% block title %}Google data · {{ site.name }}{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{% url 'dashboard' %}">All sites</a> / <a href="{% url 'site_detail' site.id %}">{{ site.name }}</a></div>
+<div class="page-head"><div><h1>Google data</h1><p class="sub">Pick the Search Console and GA4 properties for {{ site.domain }}.</p></div></div>
+
+{% if not configured %}
+<div class="notice-bar"><span class="dot warning" style="margin-top:7px"></span><div>Google isn't set up yet. See <a href="{% url 'google_home' %}">Google connections</a>.</div></div>
+{% elif not accounts %}
+<div class="panel empty"><h2>Connect Google first</h2><p class="muted">Sign in with the Google account that can see this client's Search Console and Analytics.</p><a class="btn btn-primary" href="{% url 'google_connect' %}?site={{ site.id }}">Connect a Google account</a></div>
+{% else %}
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+{% if accounts|length > 1 %}
+<form method="get" class="panel" style="max-width:720px;margin-bottom:14px">
+  <div class="field" style="margin:0"><label for="account">Google account</label>
+    <select name="account" id="account" onchange="this.form.submit()">{% for a in accounts %}<option value="{{ a.id }}" {% if link.account_id == a.id %}selected{% endif %}>{{ a.email }}</option>{% endfor %}</select>
+  </div>
+</form>
+{% endif %}
+<form method="post" class="panel" style="max-width:720px">{% csrf_token %}
+  <div class="field"><label for="gsc_property">Search Console property</label>
+    <select name="gsc_property" id="gsc_property">
+      <option value="">Don't use Search Console</option>
+      {% for p in gsc %}<option value="{{ p }}" {% if p == suggested_gsc %}selected{% endif %}>{{ p }}</option>{% endfor %}
+    </select>
+    {% if not gsc %}<span class="help">This account can't see any Search Console properties.</span>{% endif %}
+  </div>
+  <div class="field"><label for="ga4_property">GA4 property</label>
+    <select name="ga4_property" id="ga4_property">
+      <option value="">Don't use Analytics</option>
+      {% for p in ga4 %}<option value="{{ p.id }}|{{ p.name }}" {% if p.id == link.ga4_property %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+    </select>
+    <span class="help">Only organic search traffic is pulled.</span>
+  </div>
+  <button class="btn btn-primary" type="submit">Save and sync</button>
+</form>
+{% endif %}
+{% endblock %}

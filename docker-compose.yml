@@ -1,0 +1,53 @@
+services:
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [web]
+    restart: unless-stopped
+
+  web:
+    build: .
+    command: gunicorn queryrocket.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
+    env_file: .env
+    depends_on: [db, redis]
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: celery -A queryrocket worker --concurrency 2 --loglevel info
+    env_file: .env
+    depends_on: [db, redis]
+    shm_size: "1gb"   # headroom for the browser when CRAWL_RENDER_JS is on
+    restart: unless-stopped
+
+  beat:
+    build: .
+    command: celery -A queryrocket beat --loglevel info --schedule /tmp/celerybeat-schedule
+    env_file: .env
+    depends_on: [db, redis]
+    restart: unless-stopped
+
+  db:
+    image: postgres:16
+    env_file: .env
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    # No ports published: only the other containers can reach the database.
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+
+volumes:
+  pg_data:
+  caddy_data:
+  caddy_config:

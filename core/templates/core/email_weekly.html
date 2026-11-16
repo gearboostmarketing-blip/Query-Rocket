@@ -1,0 +1,22 @@
+<!DOCTYPE html><html><body style="margin:0;background:#08080e;font-family:Arial,sans-serif;color:#d4d4e8">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#08080e"><tr><td align="center" style="padding:28px 12px">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
+<tr><td style="padding:0 4px 18px;font-size:22px;font-weight:bold;color:#ffffff">Query Rocket weekly report</td></tr>
+{% for r in rows %}
+<tr><td style="background:#13131f;border:1px solid #1e1e30;border-radius:12px;padding:18px 20px">
+  <div style="font-size:17px;font-weight:bold;color:#ffffff;margin-bottom:10px">{{ r.site.name }}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;line-height:1.7">
+    <tr><td style="color:#8b8ba3">Fixes applied</td><td align="right" style="color:#fff">{{ r.applied }}{% if r.by_autopilot %} ({{ r.by_autopilot }} by autopilot){% endif %}</td></tr>
+    <tr><td style="color:#8b8ba3">Improved results</td><td align="right" style="color:#86efac">{{ r.improved }}</td></tr>
+    <tr><td style="color:#8b8ba3">Rolled back</td><td align="right" style="color:#fff">{{ r.reverted }}</td></tr>
+    {% if r.unverified %}<tr><td style="color:#fdba74">Applied but not live yet</td><td align="right" style="color:#fdba74">{{ r.unverified }}</td></tr>{% endif %}
+    <tr><td style="color:#8b8ba3">Waiting for you</td><td align="right" style="color:#c4b5fd">{{ r.waiting }}</td></tr>
+    <tr><td style="color:#8b8ba3">Critical issues</td><td align="right" style="color:{% if r.critical %}#fda4af{% else %}#fff{% endif %}">{{ r.critical }}</td></tr>
+    {% if r.perf and r.perf.has_search %}<tr><td style="color:#8b8ba3">Clicks, last 28 days</td><td align="right" style="color:#fff">{{ r.perf.now.clicks }}{% if r.perf.clicks_change is not None %} ({% if r.perf.clicks_change > 0 %}+{% endif %}{{ r.perf.clicks_change }}%){% endif %}</td></tr>{% endif %}
+  </table>
+  {% for f in r.worse %}<div style="margin-top:10px;padding:10px 12px;background:#2a0f17;border-radius:8px;font-size:13px;color:#fda4af">Hurt results: {{ f.get_kind_display }} on {{ f.page.path }}. {{ f.outcome.summary }}</div>{% endfor %}
+</td></tr>
+<tr><td style="height:12px"></td></tr>
+{% endfor %}
+{% if domain %}<tr><td align="center" style="padding-top:8px"><a href="https://{{ domain }}/fixes/" style="display:inline-block;background:#7c3aed;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:bold">Open the fix queue</a></td></tr>{% endif %}
+</table></td></tr></table></body></html>
