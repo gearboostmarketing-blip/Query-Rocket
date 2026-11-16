@@ -111,6 +111,8 @@ class Base(TestCase):
         self.addCleanup(setattr, celery_app.conf, "task_always_eager", celery_app.conf.task_always_eager)
         celery_app.conf.task_always_eager = True
         cache.clear()
+                crawler.TRANSPORT = httpx.MockTransport(site_handler)
+        self.site = Site.objects.create(name="Joe's Auto", url=f"{BASE}/")
 
     def tearDown(self):
         crawler.TRANSPORT = None
