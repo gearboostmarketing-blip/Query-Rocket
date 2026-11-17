@@ -4,10 +4,9 @@ import logging
 from collections import defaultdict
 from datetime import timedelta
 
-from django.conf import settings
 from django.utils import timezone
 
-from . import ai, ai_fix, metrics
+from . import ai, ai_fix, conf, metrics
 from .models import Fix, QueryStat
 from .validators import failures, validate
 
@@ -140,6 +139,8 @@ def propose_one(site, page, kind, target, old, source, others, live_pages):
     ctx["target"] = target
     ctx["live_pages"] = live_pages
     ctx["live_urls"] = [u for u, _ in live_pages]
+    from .learning import active_for
+    ctx["lessons"] = active_for(site, kind)
 
     if kind == Fix.SCHEMA:
         out = {"value": local_business_schema(site, page), "rationale": "Adds LocalBusiness structured data built from the business profile you confirmed.",
@@ -158,7 +159,8 @@ def propose_one(site, page, kind, target, old, source, others, live_pages):
 
     fix = Fix(site=site, page=page, kind=kind, target=target, old_value=old or "", new_value=out["value"].strip(),
               rationale=out.get("rationale", ""), rules=[r for r in out.get("rules_cited", []) if r],
-              confidence=float(out.get("confidence") or 0), validation=checks, source_issue=source)
+              confidence=float(out.get("confidence") or 0), validation=checks, source_issue=source,
+              lessons_used=[l.id for l in ctx["lessons"]] if kind not in (Fix.SCHEMA, Fix.FOCUS) else [])
 
     if failures(checks):
         fix.status, fix.decided_by = Fix.REJECTED, "checks"
@@ -181,11 +183,12 @@ def propose_one(site, page, kind, target, old, source, others, live_pages):
 
 def generate_fixes(site, limit=None):
     if not ai.ai_enabled():
+        _finish(site, "AI is off.", ai.AIUnavailable("off"))
         return {"created": 0, "skipped": "AI is off"}
-    limit = limit or settings.FIX_MAX_PER_RUN
+    limit = limit or conf.get("FIX_MAX_PER_RUN")
     others = list(site.pages.filter(status_code=200).only("id", "title", "meta_description"))
     live_pages = [(p.url, p.title[:80]) for p in site.pages.filter(status_code=200, redirect_to="") if not p.is_noindex]
-    created, errors = 0, 0
+    created, errors, last_error = 0, 0, None
     for page, kind, target, old, source in candidates(site):
         if created >= limit:
             break
@@ -196,7 +199,19 @@ def generate_fixes(site, limit=None):
                 created += 1
         except Exception as exc:
             errors += 1
+            last_error = exc
             log.warning("Fix proposal failed for %s %s: %s", page.url, kind, exc)
-            if errors >= 5:
+            if errors >= 5 or ai.is_fatal(exc):
                 break
+    summary = f"Wrote {created} new fix{'es' if created != 1 else ''}" + (f", {errors} failed" if errors else "") + "."
+    _finish(site, summary, last_error if errors else None)
     return {"created": created, "errors": errors}
+
+
+def _finish(site, summary, error=None):
+    site.fixes_run_at, site.fixes_run_summary = timezone.now(), summary[:300]
+    site.save(update_fields=["fixes_run_at", "fixes_run_summary"])
+    if error is not None:
+        ai.record_error(site, error)
+    else:
+        ai.clear_error(site)

@@ -1,0 +1,97 @@
+{% extends "core/base.html" %}
+{% block title %}AI visibility · {{ site.name }}{% endblock %}
+{% block head %}{% if running %}<meta http-equiv="refresh" content="15">{% endif %}{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{% url 'dashboard' %}">All sites</a> / <a href="{% url 'site_detail' site.id %}">{{ site.name }}</a></div>
+<div class="page-head">
+  <div>
+    <h1>AI visibility</h1>
+    <p class="sub">Does {{ site.profile.business_name|default:site.name }} come up when people ask AI assistants for help? Each question goes to every engine with live web search on, {{ runs }} time{{ runs|pluralize }} each, monthly or on demand.</p>
+  </div>
+  <form method="post">{% csrf_token %}<input type="hidden" name="action" value="scan"><button class="btn btn-primary" type="submit" {% if running or not engines or not prompts %}disabled{% endif %}>{% if running %}Scanning…{% else %}Scan now{% endif %}</button></form>
+</div>
+
+{% if not engines %}
+<div class="notice-bar"><span class="dot warning" style="margin-top:7px"></span><div>Add at least one engine key in <a href="{% url 'settings' %}#engines">Settings</a>: OpenAI (ChatGPT), Perplexity, or Gemini. Claude uses your existing Anthropic key.</div></div>
+{% endif %}
+{% if running %}<div class="crawl-strip"><span>Asking {{ engines|join:", " }}</span><span class="track"><span></span></span><span class="muted">{{ running.progress|default:"Starting" }}</span></div>{% endif %}
+{% if failed %}<div class="flash error">The last scan failed: {{ failed.error }}</div>{% endif %}
+
+{% if scan %}
+<section class="panel">
+  <div class="panel-head"><h2>Latest results</h2>
+    {% if history|length > 1 %}<form method="get" class="small"><label class="sr-only" for="scanpick">Scan date</label><select id="scanpick" name="scan" onchange="this.form.submit()">{% for s in history %}<option value="{{ s.id }}" {% if s.id == scan.id %}selected{% endif %}>{{ s.created_at|date:"M j, Y" }}</option>{% endfor %}</select></form>{% else %}<span class="muted small">{{ scan.created_at|date:"M j, Y" }}</span>{% endif %}
+  </div>
+  {% with s=scan.summary p=previous.summary %}
+  <div class="kpis">
+    <div><span class="k">Mentioned in</span><span class="v">{{ s.mention_pct|default_if_none:"–" }}{% if s.mention_pct is not None %}%{% endif %}</span><span class="d {% if previous and s.mention_pct > p.mention_pct %}up{% elif previous and s.mention_pct < p.mention_pct %}down{% else %}muted{% endif %}">{% if previous %}{{ p.mention_pct|default_if_none:"–" }}% last time{% else %}of {{ s.answers }} answers{% endif %}</span></div>
+    <div><span class="k">Website cited</span><span class="v">{{ s.cited_pct|default_if_none:"–" }}{% if s.cited_pct is not None %}%{% endif %}</span><span class="d muted">quoted as a source</span></div>
+    <div><span class="k">Average position</span><span class="v">{{ s.avg_position|default_if_none:"–" }}</span><span class="d muted">when mentioned (1 = first)</span></div>
+    <div><span class="k">Said positively</span><span class="v">{{ s.positive_pct|default_if_none:"–" }}{% if s.positive_pct is not None %}%{% endif %}</span><span class="d muted">of mentions</span></div>
+  </div>
+  {% if scan.error %}<p class="small" style="color:var(--orange);margin:10px 0 0">{{ scan.error }}</p>{% endif %}
+
+  <h3 style="margin:20px 0 8px">By engine</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Engine</th><th class="num">Mentioned</th><th class="num">Cited</th><th class="num">Answers</th></tr></thead>
+    <tbody>{% for e in s.engines %}<tr><td>{{ e.label }}</td><td class="num">{{ e.mention_pct|default_if_none:"–" }}%</td><td class="num">{{ e.cited_pct|default_if_none:"–" }}%</td><td class="num">{{ e.answers }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+
+  <h3 style="margin:20px 0 8px">By question <span class="muted small">(weakest first; tap one to read the answers)</span></h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Question</th><th class="num">Mentioned</th></tr></thead>
+    <tbody>{% for q in s.prompts %}<tr><td><a href="?scan={{ scan.id }}&q={{ q.text|urlencode }}#answers">{{ q.text }}</a></td><td class="num">{{ q.mentioned }} of {{ q.of }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% endwith %}
+</section>
+
+<div class="grid-2">
+  <section class="panel">
+    <div class="panel-head"><h2>Named instead</h2></div>
+    {% for name, n in scan.summary.competitors %}<div class="issue-item"><div class="it" style="font-weight:400">{{ name }} <span class="count-pill">{{ n }}</span></div></div>
+    {% empty %}<p class="muted" style="margin:0">No other businesses named.</p>{% endfor %}
+  </section>
+  <section class="panel">
+    <div class="panel-head"><h2>Sources the AI trusted instead</h2></div>
+    <p class="muted small">Quoted in answers that left this business out. Getting listed, reviewed, or mentioned on these is how to show up next time.</p>
+    {% for d, n in scan.summary.sources %}<div class="issue-item"><div class="it" style="font-weight:400">{{ d }} <span class="count-pill">{{ n }}</span></div></div>
+    {% empty %}<p class="muted" style="margin:0">None yet.</p>{% endfor %}
+  </section>
+</div>
+
+{% if scan.summary.wrong_facts %}
+<section class="panel">
+  <div class="panel-head"><h2>Wrong facts about the business</h2></div>
+  <p class="muted small">Things AI said that contradict the confirmed profile. Usually an old listing somewhere; fix it at the source.</p>
+  {% for w in scan.summary.wrong_facts %}<div class="issue-item"><div class="it" style="font-weight:400;color:var(--orange)">{{ w }}</div></div>{% endfor %}
+</section>
+{% endif %}
+
+{% if question %}
+<section class="panel" id="answers">
+  <div class="panel-head"><h2>“{{ question }}”</h2><a class="small" href="?scan={{ scan.id }}">Close</a></div>
+  {% for a in answers %}
+  <article class="answer">
+    <div class="lesson-meta"><span class="tag">{% for k, v in all_engines.items %}{% if k == a.engine %}{{ v }}{% endif %}{% endfor %}</span><span class="small muted">Run {{ a.run }}</span>
+      {% if a.error %}<span class="small" style="color:var(--rose)">Failed: {{ a.error }}</span>{% elif a.mentioned %}<span class="small" style="color:var(--green)">Mentioned{% if a.position %}, #{{ a.position }}{% endif %}{% if a.cited %}, site cited{% endif %}</span>{% else %}<span class="small muted">Not mentioned</span>{% endif %}</div>
+    {% if a.text %}<details><summary class="small">Read the answer</summary><div class="answer-text">{{ a.text|linebreaksbr }}</div>
+      {% if a.citations %}<p class="small muted">Sources: {% for c in a.citations %}<span class="url">{{ c|truncatechars:60 }}</span>{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}</details>{% endif %}
+  </article>
+  {% endfor %}
+</section>
+{% endif %}
+{% endif %}
+
+<section class="panel">
+  <div class="panel-head"><h2>Questions</h2><span class="muted small">{{ prompts|length }} of 25 · about {{ asks }} answers per scan</span></div>
+  {% for p in prompts %}
+  <div class="kw-row"><span class="kw-name" style="font-weight:400">{{ p.text }}</span>{% if p.added_by == "you" %}<span class="tag">yours</span>{% endif %}
+    <form method="post" style="margin-left:auto">{% csrf_token %}<input type="hidden" name="action" value="remove"><input type="hidden" name="prompt" value="{{ p.id }}"><button class="linkish small" type="submit">Remove</button></form></div>
+  {% empty %}<p class="muted">No questions yet. Let Query Rocket write them from the business profile, then remove any that don't fit.</p>{% endfor %}
+  <form method="post" class="kw-add">{% csrf_token %}<input type="hidden" name="action" value="add">
+    <label class="sr-only" for="newq">New question</label><input type="text" id="newq" name="text" maxlength="400" placeholder="e.g. Where can I get my brakes checked in Kinston?">
+    <button class="btn btn-ghost" type="submit">Add</button></form>
+  <form method="post" style="margin-top:10px">{% csrf_token %}<input type="hidden" name="action" value="suggest"><button class="btn btn-ghost" type="submit">{% if prompts %}Suggest more questions{% else %}Write questions for me{% endif %}</button></form>
+</section>
+<p class="muted small">Engines: {% if engines %}{{ engines|join:", " }}{% else %}none yet{% endif %}. Answers come from each engine's API with web search on: close to the apps, not identical, since the apps also use each person's location and history. Watch the trend, not one scan.</p>
+{% endblock %}

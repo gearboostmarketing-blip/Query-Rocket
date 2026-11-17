@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Query Rocket Connector
- * Description: Lets the GearBoost Query Rocket hub apply approved SEO fixes through Rank Math or Yoast, verify them, and roll them back.
- * Version: 1.1.0
+ * Description: Lets the GearBoost Query Rocket hub crawl this site from inside the server, apply approved SEO fixes through Rank Math or Yoast, verify them, and roll them back.
+ * Version: 1.2.0
  * Author: GearBoost Marketing
  * Requires PHP: 7.4
  * Requires at least: 6.0
@@ -12,7 +12,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('QR_VERSION', '1.1.0');
+define('QR_VERSION', '1.2.0');
 define('QR_NS', 'query-rocket/v1');
 
 register_activation_hook(__FILE__, 'qr_activate');
@@ -182,7 +182,7 @@ function qr_log($fix_id, $ref, $kind, $target, $old, $new) {
 function qr_existing_change($fix_id) {
     global $wpdb;
     return $wpdb->get_row($wpdb->prepare(
-        "SELECT * FROM {$wpdb->prefix}qr_changes WHERE fix_id = %s AND rolled_back = 0 AND kind <> 'builder' ORDER BY id DESC LIMIT 1", (string) $fix_id));
+        "SELECT * FROM {$wpdb->prefix}qr_changes WHERE fix_id = %s AND rolled_back = 0 ORDER BY (kind = 'builder'), id DESC LIMIT 1", (string) $fix_id));
 }
 
 function qr_purge($ref) {
@@ -472,6 +472,31 @@ function qr_tree_replace_link(&$node, $candidates, $new_url) {
     return $n;
 }
 
+/** Does this page's builder data contain a link to $url? (Raw text search: works for any nesting.) */
+function qr_builder_contains($post_id, $url) {
+    $data = qr_builder_data($post_id);
+    if (!$data) {
+        return false;
+    }
+    $raw = is_string($data['raw']) ? $data['raw'] : wp_json_encode($data['raw']);
+    // Builder data can be JSON inside JSON, so undo escaping layer by layer until it stops changing.
+    for ($i = 0; $i < 5; $i++) {
+        $next = str_replace(array('\\\\', '\\/', '\\"'), array('\\', '/', '"'), $raw);
+        if ($next === $raw) {
+            break;
+        }
+        $raw = $next;
+    }
+    $path = (string) wp_parse_url($url, PHP_URL_PATH);
+    foreach (array_unique(array_filter(array(untrailingslashit($url), untrailingslashit($path)))) as $c) {
+        // The URL must end right there (optional slash, then a quote), so /parts doesn't match /parts-list.
+        if (preg_match('#' . preg_quote($c, '#') . '/?["\']#', $raw)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /** Apply an edit to builder data. $dry_run reports what would change without saving. */
 function qr_builder_edit($post_id, $kind, $target, $value, $dry_run = false) {
     if (!qr_builder_allowed()) {
@@ -502,6 +527,68 @@ function qr_builder_edit($post_id, $kind, $target, $value, $dry_run = false) {
     return array('changes' => $count, 'meta_key' => $data['key'], 'old' => $data['raw']);
 }
 
+/* ------------------------------------------------------------------ noindex (only when you choose it in Query Rocket) */
+
+/** Where this page's noindex setting lives: array(meta type, object id, meta key). */
+function qr_robots_slot($ref) {
+    list($type, $id) = array_pad(explode(':', $ref, 2), 2, '');
+    if ($type !== 'post' && $type !== 'term') {
+        return new WP_Error('qr_unsupported', 'Noindex can only be set on posts, pages, and archive terms.', array('status' => 422));
+    }
+    $p = qr_seo_plugin();
+    if ($p === 'yoast' && $type === 'term') {
+        return new WP_Error('qr_unsupported', 'Yoast archive noindex is not supported yet. Set it in Yoast for this term.', array('status' => 422));
+    }
+    $key = $p === 'rankmath' ? 'rank_math_robots' : ($p === 'yoast' ? '_yoast_wpseo_meta-robots-noindex' : '_qr_noindex');
+    return array($type, intval($id), $key);
+}
+
+function qr_set_noindex($ref) {
+    $slot = qr_robots_slot($ref);
+    if (is_wp_error($slot)) {
+        return $slot;
+    }
+    list($type, $id, $key) = $slot;
+    $old = get_metadata($type, $id, $key, true);
+    if ($key === 'rank_math_robots') {
+        $robots = array_values(array_diff((array) ($old ? $old : array()), array('index', '')));
+        $robots[] = 'noindex';
+        update_metadata($type, $id, $key, array_values(array_unique($robots)));
+    } else {
+        update_metadata($type, $id, $key, '1');
+    }
+    return array('slot' => $type . ':' . $id . ':' . $key, 'old' => $old);
+}
+
+/** Put back exactly what was there before (including "nothing"). */
+function qr_restore_meta($slot, $old) {
+    list($type, $id, $key) = array_pad(explode(':', $slot, 3), 3, '');
+    if ($old === '' || $old === null || $old === false || $old === array()) {
+        delete_metadata($type, intval($id), $key);
+    } else {
+        update_metadata($type, intval($id), $key, $old);
+    }
+    return true;
+}
+
+// With no SEO plugin, Query Rocket outputs the noindex tag itself.
+add_filter('wp_robots', function ($robots) {
+    if (qr_seo_plugin() !== 'none') {
+        return $robots;
+    }
+    $on = false;
+    if (is_singular()) {
+        $on = (bool) get_post_meta(get_queried_object_id(), '_qr_noindex', true);
+    } elseif (is_category() || is_tag() || is_tax()) {
+        $on = (bool) get_term_meta(get_queried_object_id(), '_qr_noindex', true);
+    }
+    if ($on) {
+        $robots['noindex'] = true;
+        unset($robots['index']);
+    }
+    return $robots;
+}, 99);
+
 /* ------------------------------------------------------------------ REST */
 
 add_action('rest_api_init', function () {
@@ -510,14 +597,15 @@ add_action('rest_api_init', function () {
     register_rest_route(QR_NS, '/pages', $auth + array('methods' => 'POST', 'callback' => 'qr_rest_pages'));
     register_rest_route(QR_NS, '/apply', $auth + array('methods' => 'POST', 'callback' => 'qr_rest_apply'));
     register_rest_route(QR_NS, '/rollback', $auth + array('methods' => 'POST', 'callback' => 'qr_rest_rollback'));
+    register_rest_route(QR_NS, '/fetch', $auth + array('methods' => 'POST', 'callback' => 'qr_rest_fetch'));
 });
 
 function qr_rest_status() {
     return array(
         'ok' => true, 'plugin_version' => QR_VERSION, 'wp_version' => get_bloginfo('version'),
         'seo_plugin' => qr_seo_plugin(), 'home' => home_url('/'), 'time' => time(),
-        'builder_allowed' => qr_builder_allowed(),
-        'builder' => defined('OXYGEN_VERSION') || defined('__BREAKDANCE_VERSION') || function_exists('oxygen_vsb_register_condition') ? 'oxygen' : '',
+        'builder_allowed' => qr_builder_allowed(), 'can_fetch' => true, 'can_noindex' => true,
+        'builder' => defined('OXYGEN_VERSION') || defined('__BREAKDANCE_VERSION') || defined('__JENGA_VERSION__') || function_exists('oxygen_vsb_register_condition') ? 'oxygen' : '',
     );
 }
 
@@ -593,22 +681,57 @@ function qr_rest_apply(WP_REST_Request $request) {
             return $r;
         }
         $id = qr_log($fix_id, $ref, $kind, '', $old, $value);
+    } elseif ($kind === 'noindex') {
+        if (untrailingslashit(strtok($url, '?#')) === untrailingslashit(home_url('/'))) {
+            return new WP_Error('qr_home', 'Query Rocket never noindexes the homepage.', array('status' => 422));
+        }
+        $r = qr_set_noindex($ref);
+        if (is_wp_error($r)) {
+            return $r;
+        }
+        $id = qr_log($fix_id, $ref, 'noindex', $r['slot'], $r['old'], 'noindex');
     } elseif ($kind === 'broken_link') {
         if (strpos($ref, 'post:') !== 0) {
             return new WP_Error('qr_unsupported', 'Links can only be edited inside posts and pages.', array('status' => 422));
         }
         $post_id = intval(substr($ref, 5));
-        $old = qr_replace_link($post_id, $target, $value === 'REMOVE' ? 'REMOVE' : esc_url_raw($value));
-        if (is_wp_error($old) && $old->get_error_code() === 'qr_not_found' && $request->get_param('allow_builder')) {
-            $b = qr_builder_edit($post_id, 'broken_link', $target, $value);
+        $new = $value === 'REMOVE' ? 'REMOVE' : esc_url_raw($value);
+        if (qr_builder_contains($post_id, $target)) {
+            // Oxygen renders this link from its builder data, not the WordPress content. Changing only the
+            // content "works" but never shows on the live page, so the builder data has to change.
+            if (!$request->get_param('allow_builder') || !qr_builder_allowed()) {
+                return new WP_Error('qr_builder_needed', 'This link is in the page\'s Oxygen builder data. '
+                    . 'Changing only the WordPress content wouldn\'t show on the live page. Turn on page builder edits '
+                    . '(Settings > Query Rocket here, and on this site\'s WordPress connection screen in Query Rocket), or fix it in Oxygen.',
+                    array('status' => 422));
+            }
+            $b = qr_builder_edit($post_id, 'broken_link', $target, $new);
             if (is_wp_error($b)) {
                 return $b;
             }
             $id = qr_log($fix_id, $ref, 'builder', $b['meta_key'], $b['old'], '');
-        } elseif (is_wp_error($old)) {
-            return $old;
+            // Keep WordPress's own copy of the content in step too, when the link is there.
+            $old = qr_replace_link($post_id, $target, $new);
+            if (!is_wp_error($old)) {
+                $id = qr_log($fix_id, $ref, $kind, $target, $old, $value);
+            }
         } else {
-            $id = qr_log($fix_id, $ref, $kind, $target, $old, $value);
+            // Not in builder data: the link is in the WordPress content (which Oxygen can also show
+            // through a Post Content element). Query Rocket checks the live page afterwards either way.
+            $old = qr_replace_link($post_id, $target, $new);
+            if (is_wp_error($old) && $old->get_error_code() === 'qr_not_found' && $request->get_param('allow_builder')
+                && qr_builder_allowed() && qr_builder_data($post_id)) {
+                // Last try: the builder may store the link in a form the quick search didn't spot.
+                $b = qr_builder_edit($post_id, 'broken_link', $target, $new);
+                if (is_wp_error($b)) {
+                    return $old;
+                }
+                $id = qr_log($fix_id, $ref, 'builder', $b['meta_key'], $b['old'], '');
+            } elseif (is_wp_error($old)) {
+                return $old;
+            } else {
+                $id = qr_log($fix_id, $ref, $kind, $target, $old, $value);
+            }
         }
     } else {
         return new WP_Error('qr_kind', 'Unknown fix type.', array('status' => 400));
@@ -639,6 +762,8 @@ function qr_rest_rollback(WP_REST_Request $request) {
     } elseif ($row->kind === 'builder') {
         update_post_meta(intval(substr($row->object_ref, 5)), $row->target, wp_slash(maybe_unserialize($row->old_value)));
         $r = true;
+    } elseif ($row->kind === 'noindex') {
+        $r = qr_restore_meta($row->target, $row->old_value);
     } elseif ($row->kind === 'broken_link') {
         $r = wp_update_post(array('ID' => intval(substr($row->object_ref, 5)), 'post_content' => wp_slash($row->old_value)), true);
     } else {
@@ -657,6 +782,126 @@ function qr_rest_rollback(WP_REST_Request $request) {
     }
     qr_purge($row->object_ref);
     return array('ok' => true);
+}
+
+/* ------------------------------------------------------------------ crawling from inside the server */
+/*
+ * The hub asks for one URL at a time and this site fetches it from itself, so firewalls, Cloudflare bot rules,
+ * and security plugins that block outside crawlers don't get in the way. Only this site's own addresses can be
+ * fetched. Redirects are not followed here: the hub follows them so it can see every hop, the way Google does.
+ */
+
+define('QR_FETCH_MAX_BYTES', 5 * 1024 * 1024);
+
+function qr_own_hosts() {
+    $hosts = array();
+    foreach (array(home_url('/'), site_url('/')) as $u) {
+        $h = strtolower((string) wp_parse_url($u, PHP_URL_HOST));
+        if ($h) {
+            $hosts[] = $h;
+            $hosts[] = strpos($h, 'www.') === 0 ? substr($h, 4) : 'www.' . $h;
+        }
+    }
+    return array_unique($hosts);
+}
+
+function qr_fetch_url_allowed($url) {
+    $p = wp_parse_url($url);
+    if (!$p || empty($p['host']) || empty($p['scheme']) || !in_array(strtolower($p['scheme']), array('http', 'https'), true)) {
+        return false;
+    }
+    if (isset($p['user']) || isset($p['pass']) || isset($p['port'])) {
+        return false;
+    }
+    return in_array(strtolower($p['host']), qr_own_hosts(), true);
+}
+
+/** Point the request at this server (127.0.0.1) while keeping the real host name, so the CDN is skipped. */
+add_action('http_api_curl', function ($handle, $args, $url) {
+    if (empty($args['qr_loopback']) || !defined('CURLOPT_RESOLVE')) {
+        return;
+    }
+    $p = wp_parse_url($url);
+    if (!$p || empty($p['host'])) {
+        return;
+    }
+    $port = strtolower($p['scheme']) === 'https' ? 443 : 80;
+    curl_setopt($handle, CURLOPT_RESOLVE, array($p['host'] . ':' . $port . ':127.0.0.1'));
+}, 10, 3);
+
+function qr_fetch_once($url, $user_agent, $loopback) {
+    $start = microtime(true);
+    $r = wp_remote_get($url, array(
+        'timeout' => 25,
+        'redirection' => 0,
+        'user-agent' => $user_agent,
+        'headers' => array('Accept' => 'text/html,application/xhtml+xml,application/xml,text/plain;q=0.9,*/*;q=0.8', 'Cache-Control' => 'no-cache'),
+        'limit_response_size' => QR_FETCH_MAX_BYTES,
+        // Loopback talks to this same server, whose certificate may be a CDN origin certificate.
+        'sslverify' => !$loopback,
+        'reject_unsafe_urls' => false,
+        'qr_loopback' => $loopback,
+    ));
+    return array($r, (int) round((microtime(true) - $start) * 1000));
+}
+
+function qr_rest_fetch(WP_REST_Request $request) {
+    $url = esc_url_raw((string) $request->get_param('url'));
+    if (!$url || !qr_fetch_url_allowed($url)) {
+        return new WP_Error('qr_fetch_host', 'Query Rocket can only fetch pages on this site.', array('status' => 400));
+    }
+    $ua = sanitize_text_field((string) $request->get_param('user_agent'));
+    if ($ua === '') {
+        $ua = 'Mozilla/5.0 (compatible; QueryRocketBot/1.0)';
+    }
+
+    // Remember which way works on this server so each fetch doesn't have to try both.
+    $mode = get_transient('qr_fetch_mode');
+    $order = $mode === 'public' ? array(false, true) : array(true, false);
+    $r = null;
+    $ms = 0;
+    $used = '';
+    $errors = array();
+    foreach ($order as $loopback) {
+        list($r, $ms) = qr_fetch_once($url, $ua, $loopback);
+        if (!is_wp_error($r)) {
+            $used = $loopback ? 'loopback' : 'public';
+            break;
+        }
+        $errors[] = ($loopback ? 'inside the server: ' : 'over the internet: ') . $r->get_error_message();
+    }
+    if (is_wp_error($r)) {
+        return new WP_Error('qr_fetch_failed', 'This site couldn\'t load its own page (' . implode('; ', $errors) . ').', array('status' => 502));
+    }
+    if ($mode !== $used) {
+        set_transient('qr_fetch_mode', $used, DAY_IN_SECONDS);
+    }
+
+    $header = function ($name) use ($r) {
+        $v = wp_remote_retrieve_header($r, $name);
+        return is_array($v) ? (string) end($v) : (string) $v;
+    };
+    $status = (int) wp_remote_retrieve_response_code($r);
+    $ctype = $header('content-type');
+    $location = $header('location');
+    if ($location !== '') {
+        $location = WP_Http::make_absolute_url($location, $url);
+    }
+    $body = '';
+    if (preg_match('#(html|xml|text/plain)#i', $ctype) || $ctype === '') {
+        $body = (string) wp_remote_retrieve_body($r);
+    }
+    return array(
+        'status' => $status,
+        'content_type' => $ctype,
+        'location' => $location,
+        'x_robots_tag' => $header('x-robots-tag'),
+        'ms' => $ms,
+        'via' => $used,
+        'truncated' => strlen($body) >= QR_FETCH_MAX_BYTES,
+        // Base64 so pages with odd characters survive the trip as JSON.
+        'body_b64' => base64_encode($body),
+    );
 }
 
 /* ------------------------------------------------------------------ admin screen */

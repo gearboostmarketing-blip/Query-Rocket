@@ -10,6 +10,9 @@
   <form method="post" action="{% url 'fixes_generate' site.id %}">{% csrf_token %}<button class="btn btn-primary" type="submit" {% if not ai_enabled %}disabled{% endif %}>Find new fixes</button></form>
 </div>
 
+{% if site.ai_error %}<div class="flash error" style="margin-bottom:14px"><b>AI problem:</b> {{ site.ai_error }} <span class="small">({{ site.ai_error_at|timesince }} ago)</span></div>{% endif %}
+{% if site.fixes_run_at %}<p class="muted small" style="margin:-6px 0 14px">Last fix run {{ site.fixes_run_at|timesince }} ago: {{ site.fixes_run_summary }}</p>{% endif %}
+
 <nav class="tabs" aria-label="Fix status">
   {% for key, n in counts.items %}
   <a href="?tab={{ key }}" class="{% if tab == key %}on{% endif %}">{% if key == "waiting" %}Waiting for you{% elif key == "live" %}Approved and live{% elif key == "rejected" %}Rejected{% else %}Rolled back or failed{% endif %} <span>{{ n }}</span></a>
@@ -25,7 +28,7 @@
 {% if tab == "waiting" and fixes %}
 <form method="post" action="{% url 'fixes_bulk_approve' site.id %}" class="bulk">{% csrf_token %}
   <input type="hidden" name="kind" value="{{ kind }}">
-  <span class="muted small">Only fixes that passed every check and the reviewer are approved in bulk.</span>
+  <span class="muted small">Only fixes that passed every check and the reviewer are approved in bulk. Overrides are always one at a time.</span>
   <button class="btn btn-ghost" type="submit">Approve all {% if kind %}shown{% else %}waiting{% endif %}</button>
 </form>
 {% endif %}
@@ -35,7 +38,7 @@
   <header class="fix-head">
     <span class="tag">{{ fix.get_kind_display }}</span>
     <a href="{% url 'page_detail' fix.page_id %}" class="fix-page">{{ fix.page.path }}</a>
-    <span class="fix-meta">{% if fix.human_edited %}Edited by you. {% endif %}{% if fix.status != "proposed" %}{{ fix.get_status_display }}. {% endif %}Confidence {{ fix.confidence|floatformat:2 }}</span>
+    <span class="fix-meta">{% if fix.decided_user %}{% if fix.decided_by == "override" %}Overridden{% elif fix.status == "rejected" %}Rejected{% else %}Approved{% endif %} by {{ fix.decided_user.first_name|default:fix.decided_user.username }}. {% elif fix.decided_by == "override" %}Overridden by you. {% endif %}{% if fix.human_edited %}Edited by you. {% endif %}{% if fix.status != "proposed" %}{{ fix.get_status_display }}. {% endif %}Confidence {{ fix.confidence|floatformat:2 }}</span>
   </header>
 
   {% if fix.kind == "image_alt" %}
@@ -58,20 +61,31 @@
     {% if fix.reviewer_notes %}<p class="small" style="margin:10px 0 0"><b style="color:var(--white)">Reviewer:</b> {{ fix.reviewer_notes|linebreaksbr }}</p>{% endif %}
   </details>
 
+  {% if fix.reject_reason %}<p class="small muted" style="margin:10px 0 0">Rejected because: {{ fix.reject_reason }}</p>{% endif %}
+  {% if fix.human_edited and fix.original_value %}<p class="small muted" style="margin:10px 0 0">The AI first wrote: {{ fix.original_value|truncatechars:200 }}</p>{% endif %}
+  {% if fix.lessons_used %}<p class="small muted" style="margin:10px 0 0">Written with {{ fix.lessons_used|length }} learned lesson{{ fix.lessons_used|length|pluralize }}.</p>{% endif %}
   {% if fix.error %}<div class="flash error" style="margin:12px 0 0">{{ fix.error }}</div>{% endif %}
   {% if fix.outcome_status %}<p class="small" style="margin:10px 0 0">28-day result: <b style="color:var(--white)">{{ fix.outcome_status|capfirst }}</b>{% if fix.outcome.summary %}. {{ fix.outcome.summary }}{% endif %}</p>{% endif %}
 
   <footer class="fix-actions">
     {% if fix.status == "proposed" or fix.status == "rejected" %}
-      <form method="post" action="{% url 'fix_action' fix.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="action" value="approve"><button class="btn btn-primary" type="submit" {% if not fix.passed_validation %}disabled{% endif %}>{% if fix.status == "rejected" %}Approve anyway{% else %}Approve{% endif %}</button></form>
+      {% if f.can_approve %}
+      <form method="post" action="{% url 'fix_action' fix.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="action" value="approve"><button class="btn btn-primary" type="submit">Approve</button></form>
+      {% else %}
+      <form method="post" action="{% url 'fix_action' fix.id %}" onsubmit="return confirm('Override the checks and reviewer and send this to the site? Overrides never count toward autopilot.');">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="action" value="override"><button class="btn btn-ghost" type="submit" title="Approve even though the checks or reviewer objected. Doesn't count toward autopilot." {% if f.blocker %}disabled{% endif %}>Override</button></form>
+      {% if f.blocker %}<span class="muted small">{{ f.blocker }}</span>{% endif %}
+      {% endif %}
     {% endif %}
     {% if fix.status == "proposed" or fix.status == "approved" %}
-      <form method="post" action="{% url 'fix_action' fix.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="action" value="reject"><button class="btn btn-ghost" type="submit">Reject</button></form>
+      <details class="edit"><summary class="btn btn-ghost">Reject</summary>
+        <form method="post" action="{% url 'fix_action' fix.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="action" value="reject">
+          <input type="text" name="reason" maxlength="500" placeholder="Why? Optional, and it teaches Query Rocket (e.g. too salesy, wrong town)"><button class="btn btn-ghost" type="submit">Reject</button></form>
+      </details>
     {% endif %}
     {% if fix.status == "applied" or fix.status == "verified" %}
       <form method="post" action="{% url 'fix_action' fix.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="action" value="rollback"><button class="btn btn-danger" type="submit">Roll back</button></form>
     {% endif %}
-    {% if fix.status == "proposed" or fix.status == "rejected" %}{% if fix.kind != "schema_local_business" %}
+    {% if fix.status == "proposed" or fix.status == "rejected" %}{% if fix.kind != "schema_local_business" and fix.kind != "noindex" %}
       <details class="edit"><summary class="btn btn-ghost">Edit</summary>
         <form method="post" action="{% url 'fix_action' fix.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="action" value="edit">
           <textarea name="value" rows="3">{{ fix.new_value }}</textarea><button class="btn btn-primary" type="submit">Save edit</button></form>

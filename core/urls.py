@@ -1,9 +1,11 @@
 from django.urls import path
 
-from . import views, views_connect, views_fixes, views_google
+from . import views, views_app, views_connect, views_fixes, views_google, views_learning, views_local, views_results, views_settings
 
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
+    path("manifest.webmanifest", views_app.manifest, name="manifest"),
+    path("sw.js", views_app.service_worker, name="service_worker"),
     path("sites/<int:site_id>/", views.site_detail, name="site_detail"),
     path("sites/<int:site_id>/crawl/", views.site_crawl, name="site_crawl"),
     path("sites/<int:site_id>/status/", views.site_status, name="site_status"),
@@ -11,8 +13,10 @@ urlpatterns = [
     path("sites/<int:site_id>/delete/", views.site_delete, name="site_delete"),
     path("sites/<int:site_id>/issues/", views.site_issues, name="site_issues"),
     path("pages/<int:page_id>/", views.page_detail, name="page_detail"),
+    path("pages/<int:page_id>/noindex/", views_fixes.page_noindex, name="page_noindex"),
     path("google/", views_google.google_home, name="google_home"),
     path("google/connect/", views_google.google_connect, name="google_connect"),
+    path("google/autolink/", views_google.google_autolink, name="google_autolink"),
     path("google/callback/", views_google.google_callback, name="google_callback"),
     path("google/accounts/<int:account_id>/disconnect/", views_google.google_disconnect, name="google_disconnect"),
     path("sites/<int:site_id>/google/", views_google.site_google, name="site_google"),
@@ -24,6 +28,18 @@ urlpatterns = [
     path("fix/<int:fix_id>/", views_fixes.fix_action, name="fix_action"),
     path("sites/<int:site_id>/wordpress/", views_connect.site_connect, name="site_connect"),
     path("sites/<int:site_id>/autopilot/", views_connect.site_autopilot, name="site_autopilot"),
+    path("sites/<int:site_id>/map/", views_local.site_local, name="site_local"),
+    path("results/", views_results.results, name="results"),
+    path("sites/<int:site_id>/ai-visibility/", views_local.site_ai, name="site_ai"),
     path("sites/<int:site_id>/autopilot/run/", views_connect.autopilot_run_now, name="autopilot_run_now"),
     path("report/", views_connect.report_preview, name="report_preview"),
+    path("setup/", views_settings.setup, name="setup"),
+    path("settings/", views_settings.settings_page, name="settings"),
+    path("settings/test/<str:what>/", views_settings.settings_test, name="settings_test"),
+    path("settings/users/add/", views_settings.user_add, name="user_add"),
+    path("settings/users/<int:user_id>/remove/", views_settings.user_remove, name="user_remove"),
+    path("account/", views_settings.account, name="account"),
+    path("learning/", views_learning.learning, name="learning"),
+    path("learning/check/", views_learning.lessons_find, name="lessons_find"),
+    path("learning/<int:lesson_id>/", views_learning.lesson_action, name="lesson_action"),
 ]

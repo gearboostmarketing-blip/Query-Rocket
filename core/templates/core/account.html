@@ -1,0 +1,32 @@
+{% extends "core/base.html" %}
+{% block title %}Account{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ request.user.get_full_name|default:request.user.username }}</h1>
+    <p class="sub">Logged in as {{ request.user.username }}{% if request.user.is_superuser %} (owner){% elif request.user.is_staff %} (can change settings){% endif %}. You've approved {{ approved }} fix{{ approved|pluralize:"es" }} and rejected {{ rejected }}{% if overrides %}, {{ overrides }} by override{% endif %}.</p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <form method="post" class="panel">{% csrf_token %}<input type="hidden" name="form" value="profile">
+    <div class="panel-head"><h2>Profile</h2></div>
+    <div class="form-grid">{% for f in profile %}{% include "core/_field.html" %}{% endfor %}</div>
+    <button class="btn btn-primary" type="submit">Save</button>
+  </form>
+
+  <form method="post" class="panel">{% csrf_token %}<input type="hidden" name="form" value="password">
+    <div class="panel-head"><h2>Change password</h2></div>
+    {% for e in password.non_field_errors %}<div class="flash error">{{ e }}</div>{% endfor %}
+    {% for f in password %}{% include "core/_field.html" %}{% endfor %}
+    <button class="btn btn-primary" type="submit">Change password</button>
+  </form>
+</div>
+
+<section class="panel">
+  <div class="panel-head"><h2>Phone</h2></div>
+  <p class="muted" style="margin:0">Add Query Rocket to your home screen: in Safari tap <b>Share</b>, then <b>Add to Home Screen</b> (iPhone), or in Chrome tap <b>⋮</b>, then <b>Install app</b> (Android).</p>
+</section>
+
+<form method="post" action="{% url 'logout' %}" style="margin-top:18px">{% csrf_token %}<button class="btn btn-ghost" type="submit">Log out</button></form>
+{% endblock %}

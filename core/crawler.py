@@ -18,6 +18,8 @@ MAX_SITEMAP_URLS = 5000
 FALLBACK_SITEMAPS = ("/sitemap_index.xml", "/sitemap.xml", "/wp-sitemap.xml")
 TRANSPORT = None  # tests swap in httpx.MockTransport
 
+from .netguard import SafeTransport  # noqa: E402
+
 
 @dataclass
 class FetchResult:
@@ -42,7 +44,7 @@ class CrawlResult:
 
 class Crawler:
     def __init__(self, root_url, max_pages=500, delay=0.5, user_agent="QueryRocketBot/1.0",
-                 render_js=False, progress=None, timeout=20):
+                 render_js=False, progress=None, timeout=20, transport=None):
         self.root = normalize_url(root_url)
         self.host = bare_host(self.root)
         self.max_pages = max_pages
@@ -54,7 +56,7 @@ class Crawler:
             timeout=timeout,
             follow_redirects=True,
             max_redirects=8,
-            transport=TRANSPORT,
+            transport=transport or TRANSPORT or SafeTransport(),
         )
         self.robots = robotparser.RobotFileParser()
         self._browser = None
@@ -116,6 +118,8 @@ class Crawler:
         except httpx.HTTPError as exc:
             return FetchResult(url=url, error=f"{type(exc).__name__}: {exc}"[:500])
         ms = int((time.monotonic() - start) * 1000)
+        if r.headers.get("x-qr-ms", "").isdigit():
+            ms = int(r.headers["x-qr-ms"])  # fetched by the plugin: use the site's own timing, not the round trip
         final = normalize_url(str(r.url)) or url
         ctype = r.headers.get("content-type", "")
         html = r.text if ("html" in ctype and r.status_code == 200) else ""

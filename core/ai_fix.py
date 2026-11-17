@@ -3,8 +3,8 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
-from django.conf import settings
 
+from . import conf
 from .ai import _call_tool
 from .rules import RULES
 from .serp_width import DESCRIPTION_MAX_PX, TITLE_MAX_PX
@@ -109,7 +109,8 @@ def propose(kind, ctx, feedback=None):
     elif kind == "image_alt":
         extra = f"\n\nImage URL: {ctx.get('target')}"
 
-    text = f"{KIND_BRIEFS[kind]}\n\n{BASE_RULES}\n\nContext:\n{_page_context(ctx)}{extra}"
+    from .learning import prompt_block
+    text = f"{KIND_BRIEFS[kind]}\n\n{BASE_RULES}{prompt_block(ctx.get('lessons'))}\n\nContext:\n{_page_context(ctx)}{extra}"
     if feedback:
         text += "\n\nYour previous attempt failed these checks. Fix them:\n" + "\n".join(f"- {f}" for f in feedback)
 
@@ -119,23 +120,28 @@ def propose(kind, ctx, feedback=None):
 
     system = _system("You are the fix writer in an SEO tool used by a web agency. You propose one precise change and cite the rules it satisfies.")
     try:
-        return _call_tool(settings.AI_MODEL_PROFILE, system, content, PROPOSE_TOOL, max_tokens=1200)
+        return _call_tool(conf.get("AI_MODEL_PROFILE"), system, content, PROPOSE_TOOL, max_tokens=1200)
     except Exception:
         if kind == "image_alt" and len(content) > 1:
             content.pop(0)  # image couldn't be fetched: fall back to text-only and lower confidence
-            out = _call_tool(settings.AI_MODEL_PROFILE, system, content, PROPOSE_TOOL, max_tokens=1200)
+            out = _call_tool(conf.get("AI_MODEL_PROFILE"), system, content, PROPOSE_TOOL, max_tokens=1200)
             out["confidence"] = min(out.get("confidence", 0.5), 0.5)
             return out
         raise
 
 
-def review(kind, ctx, old, new, rationale, rules_cited, checks):
+def review(kind, ctx, old, new, rationale, rules_cited, checks, edited_by_human=False):
     cited = "\n".join(f"- {r}: {RULES[r]['name']} ({RULES[r]['tier']}). {RULES[r]['summary']}" for r in rules_cited if r in RULES)
-    text = f"""You are the reviewer. A different AI proposed this change. Approve it only if a careful senior SEO would ship it on a client's site today.
+    who = ("The agency's SEO lead edited this value by hand after an AI proposed it. They may know things the page "
+           "doesn't show, so judge the value itself, but hold it to the same standard." if edited_by_human
+           else "A different AI proposed this change.")
+    from .learning import prompt_block
+    lessons = prompt_block(ctx.get("lessons"))
+    text = f"""You are the reviewer. {who} Approve it only if a careful senior SEO would ship it on a client's site today.
 
 Reject if: it states anything not supported by the page or profile; it misrepresents the page; it's stuffed or spammy; it's worse than the current value; it breaks a Google rule; or it's only better by Rank Math's score.
 
-{BASE_RULES}
+{BASE_RULES}{lessons}
 
 Change type: {kind}
 Current value: {old or '(empty)'}
@@ -148,4 +154,4 @@ Automated checks: {json.dumps([{k: c[k] for k in ('check', 'ok', 'note')} for c 
 Context:
 {_page_context(ctx)}"""
     system = _system("You are a strict, fair SEO reviewer. You protect the client's site from bad automated changes. Use the guide's review section.")
-    return _call_tool(settings.AI_MODEL_PROFILE, system, text, REVIEW_TOOL, max_tokens=800)
+    return _call_tool(conf.get("AI_MODEL_PROFILE"), system, text, REVIEW_TOOL, max_tokens=800)

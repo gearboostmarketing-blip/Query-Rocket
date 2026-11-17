@@ -22,6 +22,8 @@ log = logging.getLogger(__name__)
 NS = "/query-rocket/v1"
 TRANSPORT = None  # tests swap in httpx.MockTransport
 
+from .netguard import SafeTransport  # noqa: E402
+
 
 class ConnectorError(Exception):
     def __init__(self, message, status=None, data=None):
@@ -47,7 +49,7 @@ def call(site, method, endpoint, payload=None, timeout=60):
     base = site.url.rstrip("/")
     urls = [f"{base}/wp-json{route}", f"{base}/?rest_route={route}"]  # second works without pretty permalinks
     last = None
-    with httpx.Client(timeout=timeout, transport=TRANSPORT, follow_redirects=False) as h:
+    with httpx.Client(timeout=timeout, transport=TRANSPORT or SafeTransport(), follow_redirects=False) as h:
         for url in urls:
             try:
                 r = h.request(method, url, content=body or None, headers=headers)
@@ -181,8 +183,10 @@ def verify(fix):
     if fix.kind == Fix.FOCUS:
         info = call(fix.site, "POST", "/pages", {"urls": [fix.page.url]})["pages"][0]
         return fix.new_value.lower() in (info.get("focus_keyword") or "").lower()
+    from .plugin_fetch import live_transport
     url = fix.page.url + ("&" if "?" in fix.page.url else "?") + f"qr_verify={int(time.time())}"
-    with httpx.Client(timeout=30, transport=TRANSPORT, follow_redirects=True,
+    # Load the page the same way crawls do, so a firewall that blocks the hub doesn't make every fix look failed.
+    with httpx.Client(timeout=60, transport=live_transport(fix.site) or TRANSPORT or SafeTransport(), follow_redirects=True,
                       headers={"User-Agent": settings.CRAWL_USER_AGENT, "Cache-Control": "no-cache"}) as h:
         r = h.get(url)
     if r.status_code != 200:
@@ -213,6 +217,9 @@ def verify(fix):
             if isinstance(data, dict) and data.get("name") == want.get("name") and data.get("@type") == want.get("@type"):
                 return True
         return False
+    if fix.kind == Fix.NOINDEX:
+        tag = soup.find("meta", attrs={"name": re.compile("^(robots|googlebot)$", re.I)})
+        return "noindex" in (r.headers.get("x-robots-tag", "") + " " + ((tag.get("content") if tag else "") or "")).lower()
     if fix.kind == Fix.LINK:
         hrefs = {normalize_url(a["href"], fix.page.url) for a in soup.find_all("a", href=True)}
         gone = normalize_url(fix.target) not in hrefs

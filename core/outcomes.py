@@ -2,9 +2,9 @@
 import logging
 from datetime import timedelta
 
-from django.conf import settings
 from django.utils import timezone
 
+from . import conf
 from .metrics import search_totals
 from .models import Fix
 
@@ -99,7 +99,9 @@ def trust(kind):
 
 
 def autopilot_can_apply(fix, ap):
-    if not ap or not ap.enabled or settings.AUTOPILOT_PAUSED or fix.kind not in (ap.kinds or []):
+    if not ap or not ap.enabled or conf.get("AUTOPILOT_PAUSED") or fix.kind not in (ap.kinds or []):
+        return False
+    if fix.kind in Fix.HUMAN_ONLY:
         return False
     if fix.status != Fix.PROPOSED or not fix.passed_validation or fix.reviewer_verdict != "approve":
         return False

@@ -8,7 +8,7 @@ import logging
 import re
 from urllib.parse import urlparse
 
-from django.conf import settings
+from . import conf
 
 log = logging.getLogger(__name__)
 
@@ -23,14 +23,55 @@ class AIUnavailable(Exception):
 
 
 def ai_enabled():
-    return bool(settings.ANTHROPIC_API_KEY)
+    return bool(conf.get("ANTHROPIC_API_KEY"))
+
+
+def explain_error(exc):
+    """Turn an Anthropic API error into a sentence that says what to do about it."""
+    msg = str(exc)
+    low = msg.lower()
+    name = type(exc).__name__
+    if isinstance(exc, AIUnavailable):
+        return "AI is off: add ANTHROPIC_API_KEY to .env and restart."
+    if "credit balance" in low or "billing" in low:
+        return "Your Anthropic credit balance is too low. Add credits at console.anthropic.com (Settings, Billing), then click Find new fixes."
+    if name == "AuthenticationError" or "invalid x-api-key" in low:
+        return "Anthropic refused the API key. Check ANTHROPIC_API_KEY in .env, then restart."
+    if name == "PermissionDeniedError":
+        return "The Anthropic API key doesn't have permission for this. Check the key's workspace in console.anthropic.com."
+    if name == "NotFoundError" or ("model" in low and "not found" in low):
+        return ("The AI model in .env doesn't exist anymore. Clear AI_MODEL_PROFILE and AI_MODEL_CLASSIFY in .env "
+                "to use the current defaults, then restart.")
+    if name == "RateLimitError":
+        return "Anthropic is rate limiting this key right now. Try again in a few minutes."
+    if name in ("APIConnectionError", "APITimeoutError", "InternalServerError", "OverloadedError") or "overloaded" in low:
+        return "Couldn't reach Anthropic (busy or offline). Try again in a few minutes."
+    return f"AI error: {msg[:300]}"
+
+
+def is_fatal(exc):
+    """Errors that will fail every call the same way, so there's no point trying the next page."""
+    text = explain_error(exc)
+    return any(k in text for k in ("credit balance", "refused the API key", "permission", "model in .env", "AI is off"))
+
+
+def record_error(site, exc):
+    from django.utils import timezone
+    site.ai_error, site.ai_error_at = explain_error(exc), timezone.now()
+    site.save(update_fields=["ai_error", "ai_error_at"])
+
+
+def clear_error(site):
+    if site.ai_error:
+        site.ai_error, site.ai_error_at = "", None
+        site.save(update_fields=["ai_error", "ai_error_at"])
 
 
 def _client():
     if not ai_enabled():
         raise AIUnavailable("No ANTHROPIC_API_KEY set")
     import anthropic
-    return anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY, max_retries=3, timeout=120)
+    return anthropic.Anthropic(api_key=conf.get("ANTHROPIC_API_KEY"), max_retries=3, timeout=120)
 
 
 def _call_tool(model, system, prompt, tool, max_tokens=4000):
@@ -118,7 +159,7 @@ def build_profile(site, pages):
         + (f"\n\n---\n\nFooter text: {footer}" if footer else "")
         + (f"\n\n---\n\nExisting structured data on the homepage:\n{schema}" if schema else "")
     )
-    return _call_tool(settings.AI_MODEL_PROFILE, PROFILE_SYSTEM, prompt, PROFILE_TOOL, max_tokens=3000)
+    return _call_tool(conf.get("AI_MODEL_PROFILE"), PROFILE_SYSTEM, prompt, PROFILE_TOOL, max_tokens=3000)
 
 
 # ---------------------------------------------------------------- page classification
@@ -168,11 +209,13 @@ def classify_pages(site, pages):
             for p in batch
         ]
         try:
-            result = _call_tool(settings.AI_MODEL_CLASSIFY, system, "Classify these pages:\n" + "\n".join(lines),
+            result = _call_tool(conf.get("AI_MODEL_CLASSIFY"), system, "Classify these pages:\n" + "\n".join(lines),
                                 CLASSIFY_TOOL, max_tokens=4000)
         except AIUnavailable:
             raise
         except Exception as exc:
+            if is_fatal(exc):
+                raise
             log.warning("Classification batch failed, using rules for it: %s", exc)
             continue
         valid_ids = {p.id for p in batch}

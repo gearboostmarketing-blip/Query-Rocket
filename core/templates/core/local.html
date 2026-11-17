@@ -1,0 +1,145 @@
+{% extends "core/base.html" %}
+{% load static %}
+{% block title %}Map pack · {{ site.name }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{% static 'core/vendor/leaflet/leaflet.css' %}">
+{% if running %}<meta http-equiv="refresh" content="15">{% endif %}
+{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="{% url 'dashboard' %}">All sites</a> / <a href="{% url 'site_detail' site.id %}">{{ site.name }}</a></div>
+<div class="page-head">
+  <div>
+    <h1>Map pack coverage</h1>
+    <p class="sub">Where {{ site.place_name|default:site.name }} shows up in Google's local results across town. Each dot is one Google search from that spot. Scanned monthly, or any time with the button.</p>
+  </div>
+  {% if keywords and site.place_id %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="scan"><button class="btn btn-primary" type="submit" {% if running %}disabled{% endif %}>{% if running %}Scanning…{% else %}Scan all keywords now{% endif %}</button></form>{% endif %}
+</div>
+
+{% if not configured %}
+<div class="notice-bar"><span class="dot warning" style="margin-top:7px"></span><div>Add a Google Maps API key in <a href="{% url 'settings' %}#maps">Settings</a> (Google Cloud, with <b>Places API (New)</b> turned on). The grid uses Google's free ID-only search, so scans cost nothing.</div></div>
+{% endif %}
+
+{% if configured and not site.place_id %}
+<section class="panel">
+  <div class="panel-head"><h2>Find the Google listing</h2></div>
+  {% if candidates %}
+    <p class="muted small">Pick this business's listing. The grid centers on it.</p>
+    {% for c in candidates %}
+    <form method="post" class="step-row">{% csrf_token %}
+      <input type="hidden" name="action" value="use">
+      {% for k, v in c.items %}{% if k != "website" %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endif %}{% endfor %}
+      <div class="step-body"><div class="step-title">{{ c.name }}</div><div class="small muted">{{ c.address }}{% if c.website %} · {{ c.website }}{% endif %}</div></div>
+      <button class="btn btn-ghost" type="submit">This one</button>
+    </form>
+    {% endfor %}
+  {% elif find_error %}<div class="flash error">{{ find_error }}</div>
+  {% elif request.GET.find %}<p class="muted">No listing found for “{{ site.profile.business_name|default:site.name }}”. Check the name and address in the business profile.</p>
+  {% else %}<p class="muted">Query Rocket searches Google for {{ site.profile.business_name|default:site.name }}{% if site.profile.address %} at {{ site.profile.address }}{% endif %}.</p>{% endif %}
+  <a class="btn btn-primary" href="?find=1">{% if candidates %}Search again{% else %}Find it on Google{% endif %}</a>
+</section>
+{% endif %}
+
+{% if site.place_id %}
+<div class="grid-2">
+  <section class="panel">
+    <div class="panel-head"><h2>Keywords</h2><span class="muted small">{{ site.map_grid_size }}×{{ site.map_grid_size }} grid, {{ site.map_spacing_miles|floatformat:"-2" }} mi apart</span></div>
+    {% for kw in keywords %}
+    <div class="kw-row{% if current and kw.id == current.id %} on{% endif %}">
+      <a href="?k={{ kw.id }}" class="kw-name">{{ kw.keyword }}</a>
+      <span class="small muted">{% if kw.running %}<span class="running-pill">Scanning</span>{% elif kw.last %}Top 3 in {{ kw.last.top3_pct|floatformat:0 }}% · avg {{ kw.last.avg_rank }}{% else %}Not scanned{% endif %}</span>
+      <form method="post" style="margin-left:auto">{% csrf_token %}<input type="hidden" name="action" value="remove"><input type="hidden" name="kw" value="{{ kw.id }}"><button class="linkish small" type="submit" aria-label="Remove {{ kw.keyword }}">Remove</button></form>
+    </div>
+    {% empty %}<p class="muted">Add the searches that bring this business customers, like “brake repair” or “auto repair”. Leave the town out: the grid supplies the location.</p>{% endfor %}
+    <form method="post" class="kw-add">{% csrf_token %}<input type="hidden" name="action" value="add">
+      <label class="sr-only" for="kw">New keyword</label><input type="text" id="kw" name="keyword" placeholder="e.g. brake repair" maxlength="200">
+      <button class="btn btn-ghost" type="submit">Add</button></form>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><h2>Listing</h2><a class="small" href="?find=1" onclick="return confirm('Pick a different Google listing?')">Change</a></div>
+    <dl class="facts">
+      <dt>Business</dt><dd>{{ site.place_name }}</dd>
+      <dt>Address</dt><dd>{{ site.place_address|default:"–" }}</dd>
+      <dt>Reviews</dt><dd>{% if site.place_rating %}{{ site.place_rating|floatformat:1 }} stars, {{ site.place_reviews }} reviews{% else %}–{% endif %}</dd>
+    </dl>
+    <form method="post" class="grid-form">{% csrf_token %}<input type="hidden" name="action" value="grid">
+      <div class="field"><label for="size">Grid</label><select id="size" name="size">{% for n in sizes %}<option value="{{ n }}" {% if n == site.map_grid_size %}selected{% endif %}>{{ n }}×{{ n }} ({% widthratio n 1 n %} searches)</option>{% endfor %}</select></div>
+      <div class="field"><label for="spacing">Miles between dots</label><input type="number" id="spacing" name="spacing" step="0.1" min="0.1" max="10" value="{{ site.map_spacing_miles|floatformat:'-2' }}"></div>
+      <button class="btn btn-ghost" type="submit">Save grid</button>
+    </form>
+  </section>
+</div>
+
+{% if current %}
+<section class="panel">
+  <div class="panel-head"><h2>“{{ current.keyword }}”</h2>
+    {% if history|length > 1 %}<form method="get" class="small"><input type="hidden" name="k" value="{{ current.id }}"><label class="sr-only" for="scanpick">Scan date</label><select id="scanpick" name="scan" onchange="this.form.submit()">{% for s in history %}<option value="{{ s.id }}" {% if scan and s.id == scan.id %}selected{% endif %}>{{ s.created_at|date:"M j, Y" }}</option>{% endfor %}</select></form>{% endif %}
+  </div>
+  {% if failed %}<div class="flash error">The last scan failed: {{ failed.error }}</div>{% endif %}
+  {% if scan %}
+  <div class="kpis" style="margin-bottom:14px">
+    <div><span class="k">Top 3 (the map pack)</span><span class="v">{{ scan.top3_pct|floatformat:0 }}%</span><span class="d {% if previous and scan.top3_pct > previous.top3_pct %}up{% elif previous and scan.top3_pct < previous.top3_pct %}down{% else %}muted{% endif %}">{% if previous %}{{ previous.top3_pct|floatformat:0 }}% last time{% else %}of the area{% endif %}</span></div>
+    <div><span class="k">Average rank</span><span class="v">{{ scan.avg_rank }}</span><span class="d {% if previous and scan.avg_rank < previous.avg_rank %}up{% elif previous and scan.avg_rank > previous.avg_rank %}down{% else %}muted{% endif %}">{% if previous %}{{ previous.avg_rank }} last time{% else %}lower is better{% endif %}</span></div>
+    <div><span class="k">Found at all</span><span class="v">{{ scan.found_pct|floatformat:0 }}%</span><span class="d muted">in the top 20</span></div>
+  </div>
+  <div class="map-wrap">
+    <div id="map" class="map" role="img" aria-label="Map of rank by location for {{ current.keyword }}"></div>
+    {% if previous %}<div class="map-toggle"><button type="button" class="btn btn-ghost" id="show-prev" aria-pressed="false">Show {{ previous.created_at|date:"M j" }}</button></div>{% endif %}
+  </div>
+  <p class="legend small"><span class="dotk top">1–3</span><span class="dotk mid">4–10</span><span class="dotk low">11–20</span><span class="dotk none">–</span> not in top 20 · Scanned {{ scan.created_at|date:"M j, Y" }}. An estimate from Google Places: the Maps app also weighs each person's history and shows ads.</p>
+  {% if scan.competitors %}
+  <h3 style="margin:18px 0 8px">Who's in the map pack instead</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Business</th><th class="num">In top 3 at</th><th class="num">#1 at</th></tr></thead>
+    <tbody>{% for c in scan.competitors %}<tr><td>{{ c.name }}</td><td class="num">{{ c.top3 }} of {{ scan.points|length }} spots</td><td class="num">{{ c.first }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+  {% elif not failed %}<p class="muted" style="margin:0">{% if current.running %}Scanning now. This page refreshes itself.{% else %}Not scanned yet.{% endif %}</p>{% endif %}
+</section>
+{% endif %}
+{% endif %}
+
+<section class="panel">
+  <div class="panel-head"><h2>Local strength</h2><span class="score {% if strength.score >= 75 %}good{% elif strength.score >= 50 %}ok{% else %}weak{% endif %}">{{ strength.score }}<span class="small">/100</span></span></div>
+  <p class="muted small">What Query Rocket can see that affects the map pack, and what to fix. Google also weighs distance and signals from across the web that no tool can see.</p>
+  {% for c in strength.checks %}
+  <div class="step-row">
+    <span class="step-mark {% if c.ok %}done{% endif %}" aria-hidden="true">{% if c.ok %}✓{% else %}!{% endif %}</span>
+    <div class="step-body"><div class="step-title">{{ c.label }} <span class="muted small">{{ c.points }}/{{ c.worth }}</span></div>
+      {% if c.detail %}<div class="small muted">{{ c.detail }}</div>{% endif %}
+      {% if not c.ok and c.fix %}<div class="small step-note">{{ c.fix }}</div>{% endif %}</div>
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}
+{% block scripts %}
+{% if scan %}
+<script src="{% static 'core/vendor/leaflet/leaflet.js' %}"></script>
+<script>
+(function () {
+  if (!window.L) return;
+  var pts = {{ points_json|safe }}, prev = {{ prev_json|safe }}, center = {{ center_json|safe }};
+  var map = L.map("map", {scrollWheelZoom: false});
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    maxZoom: 18, subdomains: "abcd",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  }).addTo(map);
+  function layer(list) {
+    return L.layerGroup(list.map(function (p) {
+      return L.marker([p.lat, p.lng], {icon: L.divIcon({className: "rank-dot " + p.c, html: p.rank ? String(p.rank) : "–", iconSize: [30, 30]}),
+        keyboard: false, title: p.rank ? "Rank " + p.rank : "Not in top 20"});
+    }));
+  }
+  var now = layer(pts).addTo(map), before = layer(prev);
+  if (center) L.marker(center, {icon: L.divIcon({className: "home-pin", html: "★", iconSize: [22, 22]}), title: "The business"}).addTo(map);
+  map.fitBounds(L.latLngBounds(pts.map(function (p) { return [p.lat, p.lng]; })).pad(0.12));
+  var btn = document.getElementById("show-prev");
+  if (btn) btn.addEventListener("click", function () {
+    var showing = btn.getAttribute("aria-pressed") === "true";
+    if (showing) { map.removeLayer(before); now.addTo(map); btn.textContent = btn.dataset.label; }
+    else { btn.dataset.label = btn.textContent; map.removeLayer(now); before.addTo(map); btn.textContent = "Show latest"; }
+    btn.setAttribute("aria-pressed", showing ? "false" : "true");
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

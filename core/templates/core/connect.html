@@ -1,18 +1,5 @@
 {% extends "core/base.html" %}
-{% block title %}WordPress connection · {{ site.name }}{% if conn.is_connected %}
-<form method="post" class="panel" style="margin-top:18px">{% csrf_token %}<input type="hidden" name="builder" value="1">
-  <div class="panel-head"><h2>Page builder edits{% if conn.builder %} (Oxygen detected){% endif %}</h2></div>
-  <p class="muted" style="max-width:70ch">Lets fixes change image alt text and broken links inside Oxygen page data, where most of this site's content lives. The page's entire builder data is backed up before each edit, and rollback restores it exactly. Link fixes still always need your approval.</p>
-  <dl class="facts" style="margin-bottom:16px">
-    <dt>WordPress switch</dt><dd>{% if conn.builder_allowed_wp %}On{% else %}Off. Turn on in WordPress under Settings → Query Rocket, then test the connection above.{% endif %}</dd>
-    <dt>Your track record</dt><dd>{{ alt_trust.approved }} image alt fixes approved, {% widthratio alt_trust.rate 1 100 %}% approval{% if not alt_trust.unlocked %}. Unlocks at 10 approved with 90% or better.{% else %}. Unlocked.{% endif %}</dd>
-  </dl>
-  <label class="check"><input type="checkbox" name="allow_builder" {% if conn.allow_builder %}checked{% endif %} {% if not alt_trust.unlocked %}disabled{% endif %}> Allow Query Rocket to edit Oxygen page data on {{ site.domain }}</label>
-  <button class="btn btn-primary" type="submit" {% if not alt_trust.unlocked %}disabled{% endif %}>Save</button>
-  {% if conn.allow_builder and not conn.builder_allowed_wp %}<p class="small" style="color:var(--orange);margin:12px 0 0">On here, but still off in WordPress, so nothing will change yet.</p>{% endif %}
-</form>
-{% endif %}
-{% endblock %}
+{% block title %}WordPress connection · {{ site.name }}{% endblock %}
 {% block content %}
 <div class="crumbs"><a href="{% url 'dashboard' %}">All sites</a> / <a href="{% url 'site_detail' site.id %}">{{ site.name }}</a></div>
 <div class="page-head"><div><h1>WordPress connection</h1><p class="sub">The Query Rocket Connector plugin applies approved fixes through {{ conn.seo_plugin|default:"Rank Math or Yoast"|capfirst }}, and keeps a record of every change so it can be rolled back.</p></div></div>
@@ -44,6 +31,21 @@
     <p class="muted small" style="margin:0">If the connection is refused, a security plugin (Wordfence, Sucuri) or Cloudflare rule may be blocking the WordPress REST API for outside requests.</p>
   </section>
 </div>
+
+<form method="post" class="panel" style="margin-top:18px">{% csrf_token %}<input type="hidden" name="crawl" value="1">
+  <div class="panel-head"><h2>How crawls run</h2></div>
+  <p class="muted" style="max-width:70ch">Through the plugin, {{ site.domain }} loads its own pages from inside its server and sends them to Query Rocket, so firewalls, Cloudflare bot rules, and security plugins can't block the crawl. Fixes are checked live the same way. Needs Connector 1.2 or newer.</p>
+  <dl class="facts" style="margin-bottom:16px">
+    <dt>Plugin crawling</dt><dd>{% if can_crawl %}Ready{% elif conn.is_connected %}Update the Connector plugin to 1.2 or newer (installed: {{ conn.plugin_version|default:"unknown" }}){% else %}Connect the plugin first{% endif %}</dd>
+    {% if last_crawl %}<dt>Last crawl</dt><dd>{% if last_crawl.via == "plugin" %}Through the plugin{% elif last_crawl.via == "direct" %}Directly from Query Rocket{% else %}Before this setting existed{% endif %}, {{ last_crawl.started_at|timesince }} ago</dd>{% endif %}
+  </dl>
+  <div class="field">
+    {% for value, label in crawl_choices %}
+    <label class="check"><input type="radio" name="crawl_via" value="{{ value }}" {% if site.crawl_via == value %}checked{% endif %}> {{ label }}</label>
+    {% endfor %}
+  </div>
+  <button class="btn btn-primary" type="submit">Save</button>
+</form>
 {% if conn.is_connected %}
 <form method="post" class="panel" style="margin-top:18px">{% csrf_token %}<input type="hidden" name="builder" value="1">
   <div class="panel-head"><h2>Page builder edits{% if conn.builder %} (Oxygen detected){% endif %}</h2></div>

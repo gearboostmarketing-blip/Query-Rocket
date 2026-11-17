@@ -139,12 +139,15 @@ CELERY_BEAT_SCHEDULE = {
 
 # --- Query Rocket ---
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-AI_MODEL_PROFILE = os.environ.get("AI_MODEL_PROFILE", "claude-sonnet-5")
-AI_MODEL_CLASSIFY = os.environ.get("AI_MODEL_CLASSIFY", "claude-haiku-4-5-20251001")
+# Current models. Leave these blank in .env to always use the defaults here.
+AI_MODEL_PROFILE = os.environ.get("AI_MODEL_PROFILE", "").strip() or "claude-sonnet-5-5"
+AI_MODEL_CLASSIFY = os.environ.get("AI_MODEL_CLASSIFY", "").strip() or "claude-haiku-5-5"
 CRAWL_MAX_PAGES = env_int("CRAWL_MAX_PAGES", 500)
 CRAWL_DELAY_SECONDS = float(os.environ.get("CRAWL_DELAY_SECONDS", "0.5"))
 CRAWL_INTERVAL_DAYS = env_int("CRAWL_INTERVAL_DAYS", 7)
 CRAWL_RENDER_JS = env_bool("CRAWL_RENDER_JS", False)
+# Direct crawls refuse private/internal addresses unless this is on (testing against a LAN site only).
+ALLOW_PRIVATE_CRAWL = env_bool("ALLOW_PRIVATE_CRAWL")
 CRAWL_USER_AGENT = "Mozilla/5.0 (compatible; QueryRocketBot/1.0; +https://gearboostmarketing.com)"
 
 LOGGING = {
@@ -157,9 +160,23 @@ LOGGING = {
 # --- Google (Phase 2) ---
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
-GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", f"https://{DOMAIN}/google/callback/" if DOMAIN else "http://127.0.0.1:8000/google/callback/")
+# A blank GOOGLE_REDIRECT_URI= line in .env counts as unset, so the address is built from DOMAIN.
+GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "").strip() or (
+    f"https://{DOMAIN}/google/callback/" if DOMAIN else "http://127.0.0.1:8000/google/callback/")
 GOOGLE_BACKFILL_DAYS = env_int("GOOGLE_BACKFILL_DAYS", 120)
 CELERY_BEAT_SCHEDULE["google-daily-sync"] = {"task": "core.tasks_google.sync_all_google", "schedule": crontab(hour=5, minute=0)}
+
+# --- Map pack coverage and AI visibility ---
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")      # Places API (New) enabled
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "").strip() or "gpt-5.5"
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.6-flash"
+PERPLEXITY_MODEL = os.environ.get("PERPLEXITY_MODEL", "").strip() or "sonar"
+AI_VISIBILITY_RUNS = env_int("AI_VISIBILITY_RUNS", 2)    # times each question is asked per engine per scan
+MONTHLY_SCAN_DAYS = 30
+CELERY_BEAT_SCHEDULE["monthly-local-scans"] = {"task": "core.tasks_local.schedule_monthly_scans", "schedule": crontab(hour=3, minute=40)}
 
 # --- Fixes (Phase 3) ---
 FIX_MAX_PER_RUN = env_int("FIX_MAX_PER_RUN", 40)
@@ -174,6 +191,7 @@ EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend" if EMAIL_HOST else "django.core.mail.backends.console.EmailBackend"
+CELERY_BEAT_SCHEDULE["find-lessons"] = {"task": "core.tasks.find_lessons", "schedule": crontab(hour=22, minute=0, day_of_week=0)}
 CELERY_BEAT_SCHEDULE["evaluate-outcomes"] = {"task": "core.tasks_autopilot.evaluate_outcomes", "schedule": crontab(hour=6, minute=0)}
 CELERY_BEAT_SCHEDULE["send-waiting-fixes"] = {"task": "core.tasks_autopilot.send_waiting_fixes", "schedule": crontab(minute=30)}
 CELERY_BEAT_SCHEDULE["weekly-report"] = {"task": "core.tasks_autopilot.weekly_report", "schedule": crontab(hour=7, minute=0, day_of_week=1)}

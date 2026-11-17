@@ -1,0 +1,156 @@
+{% extends "core/base.html" %}
+{% block title %}Results{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Results</h1>
+    <p class="sub">Every Query Rocket number in one place: filter it, compare it with the period before, and export any table to CSV.</p>
+  </div>
+  <a class="btn btn-ghost" href="{{ csv_url }}">Export CSV</a>
+</div>
+
+<form method="get" class="explore-bar" aria-label="Filters">
+  <input type="hidden" name="report" value="{{ p.report }}">
+  {% if p.report == "overview" %}<input type="hidden" name="metric" value="{{ p.metric }}">{% endif %}
+  <div class="field"><label for="f-site">Site</label>
+    <select id="f-site" name="site" onchange="this.form.submit()"><option value="">All sites</option>{% for s in sites %}<option value="{{ s.id }}" {% if p.site and p.site.id == s.id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></div>
+  <div class="field"><label for="f-range">Dates</label>
+    <select id="f-range" name="range" onchange="document.getElementById('custom-dates').hidden = this.value !== 'custom'; if (this.value !== 'custom') this.form.submit()">{% for k, v in ranges %}<option value="{{ k }}" {% if p.range_key == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+  <div class="explore-dates" id="custom-dates" {% if p.range_key != "custom" %}hidden{% endif %}>
+    <div class="field"><label for="f-start">From</label><input type="date" id="f-start" name="start" value="{{ p.start|date:'Y-m-d' }}"></div>
+    <div class="field"><label for="f-end">To</label><input type="date" id="f-end" name="end" value="{{ p.end|date:'Y-m-d' }}"></div>
+  </div>
+  <label class="check explore-compare"><input type="checkbox" name="compare" value="1" {% if p.compare %}checked{% endif %} onchange="if (!this.checked) { var h = document.createElement('input'); h.type='hidden'; h.name='compare'; h.value='0'; this.form.appendChild(h); } this.form.submit()"> Compare with previous period</label>
+  <button class="btn btn-ghost" type="submit">Apply</button>
+</form>
+<p class="muted small explore-period">{{ p.start|date:"M j, Y" }} to {{ p.end|date:"M j, Y" }}{% if p.compare %} · compared with {{ p.prev_start|date:"M j" }} to {{ p.prev_end|date:"M j, Y" }}{% endif %}</p>
+{% for e in p.errors %}<div class="flash error">{{ e }}</div>{% endfor %}
+
+<nav class="tabs" aria-label="Reports">{% for k, label, url in tabs %}<a href="{{ url }}" class="{% if p.report == k %}on{% endif %}" {% if p.report == k %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}</nav>
+
+{% if p.report != "overview" %}
+<form method="get" class="explore-bar explore-sub" aria-label="Report filters">
+  {% for k, v in keep %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  {% if p.report != "ai" %}<div class="field"><label for="f-q">{% if p.report == "queries" %}Search contains{% elif p.report == "map" %}Keyword contains{% else %}Page contains{% endif %}</label><input type="search" id="f-q" name="q" value="{{ p.q }}" placeholder="{% if p.report == 'queries' %}brake{% elif p.report == 'map' %}repair{% else %}/services/{% endif %}"></div>{% endif %}
+  {% if p.report == "pages" %}<div class="field"><label for="f-pt">Page type</label><select id="f-pt" name="page_type"><option value="">Any</option>{% for t in report.page_types %}<option value="{{ t }}" {% if p.page_type == t %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>{% endif %}
+  {% if p.report == "queries" %}
+    <div class="field"><label for="f-pmin">Position from</label><input type="number" id="f-pmin" name="pos_min" step="0.1" min="0" value="{{ p.pos_min|default_if_none:'' }}" placeholder="5"></div>
+    <div class="field"><label for="f-pmax">to</label><input type="number" id="f-pmax" name="pos_max" step="0.1" min="0" value="{{ p.pos_max|default_if_none:'' }}" placeholder="20"></div>
+  {% endif %}
+  {% if p.report == "fixes" %}
+    <div class="field"><label for="f-kind">Fix type</label><select id="f-kind" name="kind"><option value="">Any</option>{% for k, v in kinds %}<option value="{{ k }}" {% if p.kind == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="f-status">Status</label><select id="f-status" name="status"><option value="">Any</option>{% for k, v in statuses %}<option value="{{ k }}" {% if p.status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="f-dec">Decided by</label><select id="f-dec" name="decided"><option value="">Anyone</option>{% for k, v in decided_choices %}<option value="{{ k }}" {% if p.decided == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="f-out">Outcome</label><select id="f-out" name="outcome"><option value="">Any</option>{% for k, v in outcome_choices %}<option value="{{ k }}" {% if p.outcome == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="f-group">Show</label><select id="f-group" name="group">{% for k, v in groups %}<option value="{{ k }}" {% if p.group == k %}selected{% endif %}>{% if k %}Totals by {{ v|lower }}{% else %}{{ v }}{% endif %}</option>{% endfor %}</select></div>
+  {% endif %}
+  {% if p.report == "ai" %}<div class="field"><label for="f-eng">Engine</label><select id="f-eng" name="engine"><option value="">All rows</option>{% for k, v in report.engines %}<option value="{{ k }}" {% if p.engine == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>{% endif %}
+  <button class="btn btn-ghost" type="submit">Filter</button>
+</form>
+{% endif %}
+
+{% if p.report == "overview" %}
+<div class="kpi-pick" role="list">
+  {% for k in report.kpis %}
+  <a role="listitem" href="{{ k.url }}" class="kpi-card{% if p.metric == k.key %} on{% endif %}" {% if p.metric == k.key %}aria-current="true"{% endif %}>
+    <span class="k">{{ k.label }}</span>
+    <span class="v">{% if k.value is None %}–{% elif k.key == "ctr" %}{{ k.value }}%{% else %}{{ k.value|floatformat:"-1g" }}{% endif %}</span>
+    {% if p.compare %}<span class="d {% if k.better %}up{% elif k.better == False %}down{% else %}muted{% endif %}">{% if k.change is None %}no earlier data{% else %}{% if k.change > 0 %}+{% endif %}{{ k.change }}%{% endif %}</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+<section class="panel chart-panel">
+  <div class="chart-legend" aria-hidden="true">
+    <span class="lg now">{{ p.start|date:"M j" }} to {{ p.end|date:"M j" }}</span>
+    {% if p.compare %}<span class="lg before">Previous period</span>{% endif %}
+    <span class="lg lg-fix">Fixes applied</span>
+  </div>
+  <div id="chart" class="chart" role="img" aria-label="Daily {{ p.metric }} for the selected dates{% if p.compare %}, with the previous period for comparison{% endif %}. The table below has every value."></div>
+  <div id="chart-tip" class="chart-tip" hidden></div>
+</section>
+{% endif %}
+
+{% if report.note %}<p class="muted small">{{ report.note }}</p>{% endif %}
+<section class="panel" style="padding:0">
+  <div class="table-meta"><span class="muted small">{% if total_rows > limit %}Showing {{ limit }} of {{ total_rows }} rows. Export CSV for all of them.{% else %}{{ total_rows }} row{{ total_rows|pluralize }}{% endif %}</span></div>
+  <div class="table-wrap explore-table" style="border:0;border-radius:0">
+    <table>
+      <thead><tr>{% for h in headers %}<th class="{% if h.num %}num{% endif %}" {% if h.active %}aria-sort="{% if h.desc %}descending{% else %}ascending{% endif %}"{% endif %}><a href="{{ h.url }}">{{ h.label }}{% if h.active %} {% if h.desc %}↓{% else %}↑{% endif %}{% endif %}</a></th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for row in table %}<tr>{% for c in row %}<td class="{% if c.num %}num{% endif %} {{ c.tone }}"{% if c.title %} title="{{ c.title }}"{% endif %}>{{ c.text }}</td>{% endfor %}</tr>
+        {% empty %}<tr><td colspan="{{ headers|length }}" class="muted">No data for these filters and dates.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+{% if chart %}
+<script>
+(function () {
+  var data = {{ chart|safe }}, box = document.getElementById("chart"), tip = document.getElementById("chart-tip");
+  if (!box || !data.now.length) return;
+  var NS = "http://www.w3.org/2000/svg";
+  function el(name, attrs, parent) { var e = document.createElementNS(NS, name); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function fmt(v) { if (v === null || v === undefined) return "–"; var n = Math.abs(v) >= 100 ? Math.round(v) : Math.round(v * 10) / 10; return n.toLocaleString() + (data.pct ? "%" : ""); }
+  function day(d) { return new Date(d + "T00:00:00").toLocaleDateString(undefined, {month: "short", day: "numeric"}); }
+  function draw() {
+    box.textContent = "";
+    var W = box.clientWidth, H = 260, L = 46, R = 12, T = 14, B = 34, n = data.now.length;
+    var svg = el("svg", {width: W, height: H, viewBox: "0 0 " + W + " " + H}, box);
+    var vals = data.now.concat(data.before).map(function (p) { return p.v; }).filter(function (v) { return v !== null; });
+    var hi = Math.max.apply(null, vals.concat([1])), lo = data.lowerIsBetter ? Math.min.apply(null, vals.concat([hi])) : 0;
+    // Round the axis to friendly steps (1, 2, 2.5, 5 x 10^n) so labels read 0, 25, 50... not 30.5.
+    function nice(span) { var p = Math.pow(10, Math.floor(Math.log10(span / 4))), m = span / 4 / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p; }
+    var step = nice(Math.max(hi - lo, 1e-9) || 1), min = Math.floor(lo / step) * step, max = Math.ceil(hi / step) * step;
+    if (max === min) max = min + step;
+    var x = function (i) { return L + (n === 1 ? (W - L - R) / 2 : i * (W - L - R) / (n - 1)); };
+    // Position: lower is better, so 1 sits at the top like Search Console.
+    var y = function (v) { var t = (v - min) / ((max - min) || 1); return data.lowerIsBetter ? T + t * (H - T - B) : H - B - t * (H - T - B); };
+    for (var gv = min; gv <= max + step / 2; gv += step) {
+      var gy = y(gv);
+      el("line", {x1: L, x2: W - R, y1: gy, y2: gy, class: "grid"}, svg);
+      el("text", {x: L - 8, y: gy + 4, "text-anchor": "end", class: "axis"}, svg).textContent = fmt(gv);
+    }
+    [0, Math.floor((n - 1) / 2), n - 1].forEach(function (i, k, arr) {
+      if (k > 0 && i === arr[k - 1]) return;
+      el("text", {x: x(i), y: H - 12, "text-anchor": i === 0 ? "start" : (i === n - 1 ? "end" : "middle"), class: "axis"}, svg).textContent = day(data.now[i].d);
+    });
+    function line(points, cls) {
+      var d = "", pen = false;
+      points.forEach(function (p, i) { if (p.v === null) { pen = false; return; } d += (pen ? "L" : "M") + x(i) + " " + y(p.v); pen = true; });
+      if (d) el("path", {d: d, class: cls}, svg);
+    }
+    if (data.before.length) line(data.before, "ln before");
+    line(data.now, "ln now");
+    data.now.forEach(function (p, i) { if (data.marks[p.d]) el("path", {d: "M" + (x(i) - 5) + " " + (H - B + 12) + "l5 -8l5 8z", class: "mark"}, svg); });
+    var hair = el("line", {y1: T, y2: H - B, class: "hair", visibility: "hidden"}, svg);
+    var dot = el("circle", {r: 4.5, class: "dot", visibility: "hidden"}, svg);
+    var hit = el("rect", {x: L, y: 0, width: W - L - R, height: H, fill: "transparent", tabindex: 0}, svg);
+    function show(i) {
+      var p = data.now[i]; hair.setAttribute("x1", x(i)); hair.setAttribute("x2", x(i)); hair.setAttribute("visibility", "visible");
+      if (p.v !== null) { dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(p.v)); dot.setAttribute("visibility", "visible"); } else dot.setAttribute("visibility", "hidden");
+      tip.textContent = "";
+      function row(label, value, cls) { var r = document.createElement("div"); r.className = "tr " + (cls || ""); var b = document.createElement("b"); b.textContent = value; var s = document.createElement("span"); s.textContent = label; r.appendChild(b); r.appendChild(s); tip.appendChild(r); }
+      row(day(p.d), fmt(p.v), "now");
+      if (data.before[i]) row(day(data.before[i].d) + " (before)", fmt(data.before[i].v), "before");
+      if (data.marks[p.d]) row("applied", data.marks[p.d] + (data.marks[p.d] === 1 ? " fix" : " fixes"), "fix");
+      tip.hidden = false;
+      var left = Math.min(Math.max(x(i) + 12, 0), W - tip.offsetWidth - 4);
+      if (x(i) + 12 + tip.offsetWidth > W) left = x(i) - tip.offsetWidth - 12;
+      tip.style.left = Math.max(0, left) + "px"; tip.style.top = "18px";
+    }
+    function nearest(evt) { var r = svg.getBoundingClientRect(), px = (evt.touches ? evt.touches[0].clientX : evt.clientX) - r.left; return Math.max(0, Math.min(n - 1, Math.round((px - L) / ((W - L - R) / Math.max(1, n - 1))))); }
+    var cur = n - 1;
+    hit.addEventListener("pointermove", function (e) { cur = nearest(e); show(cur); });
+    hit.addEventListener("pointerleave", function () { hair.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); tip.hidden = true; });
+    hit.addEventListener("focus", function () { show(cur); });
+    hit.addEventListener("blur", function () { tip.hidden = true; hair.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); });
+    hit.addEventListener("keydown", function (e) { if (e.key === "ArrowLeft") { cur = Math.max(0, cur - 1); show(cur); e.preventDefault(); } if (e.key === "ArrowRight") { cur = Math.min(n - 1, cur + 1); show(cur); e.preventDefault(); } });
+  }
+  draw();
+  var t; window.addEventListener("resize", function () { clearTimeout(t); t = setTimeout(draw, 150); });
+})();
+</script>
+{% endif %}
+{% endblock %}

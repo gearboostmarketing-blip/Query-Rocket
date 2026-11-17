@@ -16,8 +16,8 @@
 <section class="panel">
   <div class="panel-head"><h2>Accounts</h2></div>
   {% for a in accounts %}
-  <div class="issue-item" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
-    <div><div class="it">{{ a.email }}</div>
+  <div class="issue-item" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <div style="min-width:0;overflow-wrap:anywhere"><div class="it">{{ a.email }}</div>
       {% if a.last_error %}<div class="err small" style="color:var(--rose)">{{ a.last_error }}</div>{% else %}<div class="muted small">Connected {{ a.connected_at|date:"M j, Y" }}</div>{% endif %}</div>
     <form method="post" action="{% url 'google_disconnect' a.id %}">{% csrf_token %}<button class="btn btn-ghost" type="submit">Disconnect</button></form>
   </div>
@@ -26,18 +26,18 @@
   {% endfor %}
 </section>
 
-{% if links %}
+{% if sites %}
 <section class="panel">
-  <div class="panel-head"><h2>Sites</h2></div>
+  <div class="panel-head"><h2>Sites</h2>{% if accounts %}<form method="post" action="{% url 'google_autolink' %}">{% csrf_token %}<button class="btn btn-ghost" type="submit">Match unlinked sites</button></form>{% endif %}</div>
   <div class="table-wrap" style="border:0;background:none">
     <table>
       <thead><tr><th>Site</th><th>Search Console</th><th>Analytics</th><th>Last sync</th></tr></thead>
-      <tbody>{% for l in links %}
+      <tbody>{% for site, l in sites %}
         <tr>
-          <td><a href="{% url 'site_google' l.site.id %}">{{ l.site.name }}</a></td>
-          <td>{{ l.gsc_property|default:"Not linked" }}</td>
-          <td>{{ l.ga4_name|default:l.ga4_property|default:"Not linked" }}</td>
-          <td>{% if l.last_error %}<span style="color:var(--rose)">Failed</span>{% elif l.last_synced_at %}{{ l.last_synced_at|timesince }} ago{% else %}<span class="muted">Never</span>{% endif %}</td>
+          <td><a href="{% url 'site_google' site.id %}">{{ site.name }}</a></td>
+          <td>{% if l.gsc_property %}{{ l.gsc_property }}{% else %}<a href="{% url 'site_google' site.id %}">Pick property</a>{% endif %}</td>
+          <td>{% if l.ga4_property %}{{ l.ga4_name|default:l.ga4_property }}{% else %}<span class="muted">Not linked</span>{% endif %}</td>
+          <td>{% if l.last_error %}<span style="color:var(--rose)" title="{{ l.last_error }}">Problem</span><div class="small muted">{{ l.last_error|truncatechars:160 }}</div>{% elif l.last_synced_at %}{{ l.last_synced_at|timesince }} ago{% else %}<span class="muted">Never</span>{% endif %}</td>
         </tr>
       {% endfor %}</tbody>
     </table>

@@ -5,12 +5,16 @@
 <div class="page-head">
   <div>
     <h1>Client sites</h1>
-    <p class="sub">Every site Query Rocket watches. Nothing is changed on any site yet; this phase only reads and reports.</p>
+    <p class="sub">Every site Query Rocket watches. Nothing changes on a site until you approve it, or autopilot applies a fix type you've unlocked.</p>
   </div>
 </div>
 
+{% if nav_setup %}
+<div class="setup-nudge"><div><b style="color:var(--white)">Finish setting up Query Rocket</b><br><span class="small muted">{{ nav_setup.left }} step{{ nav_setup.left|pluralize }} left: AI, Google, email, and each site's plugin and profile.</span></div><a class="btn btn-primary" href="{% url 'setup' %}">Continue setup</a></div>
+{% endif %}
+
 {% if not ai_enabled %}
-<div class="notice-bar"><span class="dot warning" style="margin-top:7px"></span><div>AI is off because no Anthropic API key is set. Crawls and checks still run, and pages are sorted with URL rules instead of AI. Add <code>ANTHROPIC_API_KEY</code> to <code>.env</code> and restart to turn it on.</div></div>
+<div class="notice-bar"><span class="dot warning" style="margin-top:7px"></span><div>AI is off because no Anthropic API key is set. Crawls and checks still run, and pages are sorted with URL rules instead of AI. {% if request.user.is_staff %}<a href="{% url 'settings' %}#ai">Add your Anthropic key in Settings</a> to turn it on.{% else %}Ask an owner to add the Anthropic key in Settings.{% endif %}</div></div>
 {% endif %}
 
 {% if sites %}

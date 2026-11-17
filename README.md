@@ -55,16 +55,17 @@ docker compose exec web python manage.py test core      # on the server
 python manage.py test core                              # on your computer
 ```
 
-31 tests cover the crawler, checks, validators, the fix engine, Google sync, the WordPress connection (including
-signatures, conflicts, and rollback), result tracking, autopilot's trust rules, every screen, and login security.
+84 tests cover the crawler (direct and through the plugin), checks, validators, the fix engine, Google sync, the WordPress connection (including
+signatures, conflicts, and rollback), result tracking and the Results explorer, the map pack and AI visibility scans, learning,
+autopilot's trust rules, team permissions, every screen, login security, the private-address guard, and the static-files build.
 Everything external is simulated, so it runs offline in a few seconds. Run it after any change.
 
 ## Settings worth knowing (`.env`)
 
 | Setting | Default | What it does |
 |---|---|---|
-| `AI_MODEL_PROFILE` | `claude-sonnet-5` | Model that reads the site and builds the business profile |
-| `AI_MODEL_CLASSIFY` | `claude-haiku-4-5-20251001` | Faster, cheaper model that classifies pages in batches of 20 |
+| `AI_MODEL_PROFILE` | `claude-sonnet-5-5` | Model that reads the site and builds the business profile |
+| `AI_MODEL_CLASSIFY` | `claude-haiku-5-5` | Faster, cheaper model that classifies pages in batches of 20 |
 | `CRAWL_MAX_PAGES` | 500 | Default page limit for new sites (editable per site) |
 | `CRAWL_DELAY_SECONDS` | 0.5 | Pause between requests so client hosting isn't hammered |
 | `CRAWL_INTERVAL_DAYS` | 7 | How often sites are recrawled automatically |
@@ -86,6 +87,7 @@ core/fixer.py        Chooses what to fix and runs propose > validate > review
 core/ai_fix.py       The proposer and reviewer prompts
 core/validators.py   Code checks on every fix
 core/connector.py    Signed calls to the WordPress plugin; apply, verify, roll back
+core/plugin_fetch.py Crawling through the plugin: the site fetches its own pages from inside its server
 core/outcomes.py     28-day results, auto-revert, autopilot trust rules
 wordpress-plugin/    The Query Rocket Connector plugin (PHP)
 ```

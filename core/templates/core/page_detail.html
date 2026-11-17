@@ -6,9 +6,20 @@
 <div class="page-head">
   <div style="min-width:0">
     <h1 style="overflow-wrap:anywhere">{{ page.path }}</h1>
-    <p class="sub">{% if page.page_type %}{{ page.get_page_type_display }} page{% if page.topic %} about {{ page.topic|lower }}{% endif %}{% if page.classified_by == "rules" %} (guessed from the URL){% endif %}.{% endif %} <a href="{{ page.url }}" target="_blank" rel="noopener">Open live page</a></p>
+    <p class="sub">{% if page.is_noindex %}<b>Noindex:</b> kept out of Google. {% endif %}{% if page.page_type %}{{ page.get_page_type_display }} page{% if page.topic %} about {{ page.topic|lower }}{% endif %}{% if page.classified_by == "rules" %} (guessed from the URL){% endif %}.{% endif %} <a href="{{ page.url }}" target="_blank" rel="noopener">Open live page</a></p>
   </div>
 </div>
+
+{% if page.path != "/" and not page.is_noindex and page.is_ok %}
+<details class="panel" style="margin-bottom:18px">
+  <summary style="cursor:pointer"><b>Keep this page out of Google (noindex)</b> <span class="muted small">for pages nobody should land on from search: thank-you pages, old promos, tag archives, thin duplicates</span></summary>
+  <form method="post" action="{% url 'page_noindex' page.id %}" style="margin-top:12px" onsubmit="return confirm('Tell Google not to index {{ page.path|escapejs }}? You can roll it back on the Fixes page.');">{% csrf_token %}
+    {% if stats.search.clicks %}<p class="small" style="color:var(--orange)">This page got {{ stats.search.clicks|intcomma }} clicks from Google in the last 28 days. Those would stop.</p>{% endif %}
+    <div class="field"><label for="reason">Why (optional, saved with the fix)</label><input type="text" name="reason" id="reason" placeholder="Old promo page, nobody should find this"></div>
+    <button class="btn btn-danger" type="submit">Noindex this page</button>
+  </form>
+</details>
+{% endif %}
 
 <div class="grid-2">
   <section class="panel">

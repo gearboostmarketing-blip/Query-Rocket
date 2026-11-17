@@ -8,6 +8,7 @@ from django.template.loader import render_to_string
 from django.db.models import Q
 from django.utils import timezone
 
+from . import conf
 from .models import Fix, Issue, Site
 
 log = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ def run_autopilot(site_id):
 
     site = Site.objects.select_related("autopilot").get(id=site_id)
     ap = getattr(site, "autopilot", None)
-    if not ap or not ap.enabled or settings.AUTOPILOT_PAUSED:
+    if not ap or not ap.enabled or conf.get("AUTOPILOT_PAUSED"):
         return "off"
     result = generate_fixes(site)
     applied = 0
@@ -81,14 +82,16 @@ def build_report(since):
 
 @shared_task
 def weekly_report():
-    if not settings.REPORT_EMAIL_TO:
+    to = conf.get("REPORT_EMAIL_TO")
+    if not to:
         return "no recipients"
     since = timezone.now() - timedelta(days=7)
     rows = build_report(since)
     ctx = {"rows": rows, "since": since, "domain": settings.DOMAIN}
     text = render_to_string("core/email_weekly.txt", ctx)
     html = render_to_string("core/email_weekly.html", ctx)
-    msg = EmailMultiAlternatives("Query Rocket weekly report", text, settings.DEFAULT_FROM_EMAIL, settings.REPORT_EMAIL_TO)
+    msg = EmailMultiAlternatives("Query Rocket weekly report", text, conf.get("DEFAULT_FROM_EMAIL"), to,
+                                 connection=conf.mail_connection())
     msg.attach_alternative(html, "text/html")
     msg.send()
-    return f"sent to {len(settings.REPORT_EMAIL_TO)}"
+    return f"sent to {len(to)}"

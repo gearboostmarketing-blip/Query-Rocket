@@ -1,0 +1,39 @@
+{% extends "core/base.html" %}
+{% block title %}Setup{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Setup</h1>
+    <p class="sub">Everything Query Rocket needs to run on its own. Each step checks itself live, so this list is always current.</p>
+  </div>
+</div>
+
+<section class="panel">
+  <div class="panel-head"><h2>{{ done }} of {{ total }} done</h2><span class="muted small">{{ pct }}%</span></div>
+  <div class="meter" style="margin:0 0 6px"><div class="bar"><span style="width:{{ pct }}%"></span></div></div>
+</section>
+
+<section class="panel steps-list">
+  {% for s in steps %}
+  <div class="step-row">
+    <span class="step-mark {% if s.done %}done{% endif %}" aria-hidden="true">{% if s.done %}✓{% else %}{{ forloop.counter }}{% endif %}</span>
+    <div class="step-body">
+      <div class="step-title">{{ s.title }}<span class="sr-only">{% if s.done %} (done){% else %} (to do){% endif %}</span></div>
+      <div class="small {% if s.done %}muted{% else %}step-note{% endif %}">{{ s.note }}</div>
+      <div class="small muted">{{ s.why }}</div>
+    </div>
+    {% if s.url and not s.done %}<a class="btn btn-ghost" href="{{ s.url }}">Set up</a>{% elif s.url %}<a class="small" href="{{ s.url }}">Change</a>{% endif %}
+  </div>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>On your phone</h2></div>
+  <p class="muted" style="margin:0">iPhone: open this site in Safari, tap <b>Share</b>, then <b>Add to Home Screen</b>. Android: in Chrome, tap <b>⋮</b>, then <b>Install app</b>. It opens full screen like an app.</p>
+</section>
+
+<form method="post" style="margin-top:14px">{% csrf_token %}
+  {% if hidden %}<input type="hidden" name="hide" value="0"><button class="linkish" type="submit">Show the setup reminder on the dashboard again</button>
+  {% else %}<input type="hidden" name="hide" value="1"><button class="linkish" type="submit">Hide the setup reminder on the dashboard</button>{% endif %}
+</form>
+{% endblock %}

@@ -14,14 +14,14 @@
   {% if ap.last_run_summary %}<p class="muted small">Last run {{ ap.last_run_at|timesince }} ago: {{ ap.last_run_summary }}</p>{% endif %}
 
   <h3 style="margin:18px 0 6px">What it may apply on its own</h3>
-  <p class="muted small">A type unlocks after you've approved at least 10 of them with 90% or better approval across all sites. Edits count against the score. Homepages, pinned pages, and broken links always wait for you.</p>
+  <p class="muted small">A type unlocks after you've approved at least 10 of them, across all sites, with a score of 90% or better. The score is fixes you approved as written, out of every one you approved or rejected: edits and rejections lower it. Overrides don't count either way. Homepages, pinned pages, broken links, and noindex changes always wait for you.</p>
   <div class="table-wrap" style="margin-bottom:16px">
     <table>
       <thead><tr><th></th><th>Fix type</th><th class="num">You approved</th><th class="num">Rejected</th><th class="num">Edited</th><th class="num">Score</th><th class="num">Hurt results</th></tr></thead>
       <tbody>{% for k in kinds %}
       <tr>
         <td><input type="checkbox" name="kind_{{ k.key }}" {% if k.on %}checked{% endif %} {% if not k.trust.unlocked %}disabled{% endif %} aria-label="{{ k.label }}" style="accent-color:var(--purple)"></td>
-        <td>{{ k.label }}{% if not k.trust.unlocked %}<span class="muted small"> (approve {{ k.trust.needed|default:"more" }} more to unlock)</span>{% endif %}</td>
+        <td style="min-width:200px">{{ k.label }}<div class="small" style="color:{% if k.trust.unlocked %}var(--green){% else %}var(--orange){% endif %};max-width:46ch">{{ k.why }}</div></td>
         <td class="num">{{ k.trust.approved }}</td><td class="num">{{ k.trust.rejected }}</td><td class="num">{{ k.trust.edited }}</td>
         <td class="num">{% if k.trust.approved or k.trust.rejected %}{% widthratio k.trust.rate 1 100 %}%{% else %}<span class="muted">–</span>{% endif %}</td>
         <td class="num">{{ k.trust.worse }} of {{ k.trust.measured }}</td>

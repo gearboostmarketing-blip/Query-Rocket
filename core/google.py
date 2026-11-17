@@ -9,6 +9,7 @@ import httpx
 from django.conf import settings
 from django.utils import timezone
 
+from . import conf
 from .crypto import decrypt, encrypt
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -32,7 +33,7 @@ class GoogleError(Exception):
 
 
 def configured():
-    return bool(settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET)
+    return bool(conf.get("GOOGLE_CLIENT_ID") and conf.get("GOOGLE_CLIENT_SECRET"))
 
 
 def _http():
@@ -41,7 +42,7 @@ def _http():
 
 def auth_url(state):
     return AUTH_URL + "?" + urlencode({
-        "client_id": settings.GOOGLE_CLIENT_ID,
+        "client_id": conf.get("GOOGLE_CLIENT_ID"),
         "redirect_uri": settings.GOOGLE_REDIRECT_URI,
         "response_type": "code",
         "scope": " ".join(SCOPES),
@@ -56,7 +57,7 @@ def exchange_code(code):
     """Returns (email, refresh_token, access_token, expires_in)."""
     with _http() as h:
         r = h.post(TOKEN_URL, data={
-            "code": code, "client_id": settings.GOOGLE_CLIENT_ID, "client_secret": settings.GOOGLE_CLIENT_SECRET,
+            "code": code, "client_id": conf.get("GOOGLE_CLIENT_ID"), "client_secret": conf.get("GOOGLE_CLIENT_SECRET"),
             "redirect_uri": settings.GOOGLE_REDIRECT_URI, "grant_type": "authorization_code",
         })
         if r.status_code != 200:
@@ -86,7 +87,7 @@ def access_token(account):
             return tok
     with _http() as h:
         r = h.post(TOKEN_URL, data={
-            "client_id": settings.GOOGLE_CLIENT_ID, "client_secret": settings.GOOGLE_CLIENT_SECRET,
+            "client_id": conf.get("GOOGLE_CLIENT_ID"), "client_secret": conf.get("GOOGLE_CLIENT_SECRET"),
             "refresh_token": decrypt(account.refresh_token_enc), "grant_type": "refresh_token",
         })
     if r.status_code != 200:
@@ -142,6 +143,34 @@ def guess_gsc_property(properties, domain):
         if domain in p:
             return p
     return ""
+
+
+def _host(uri):
+    from urllib.parse import urlparse
+    return urlparse(uri if "://" in uri else f"https://{uri}").netloc.lower().removeprefix("www.")
+
+
+def ga4_stream_hosts(account, properties, limit=150):
+    """{property id: {website hosts}} from each GA4 property's web data streams. One call per property,
+    done once per account so matching many sites doesn't repeat them."""
+    out = {}
+    for p in properties[:limit]:
+        try:
+            data = _call(account, "GET", f"{GA_ADMIN}/{p['id']}/dataStreams")
+        except GoogleError:
+            continue
+        out[p["id"]] = {_host(s.get("webStreamData", {}).get("defaultUri", "")) for s in data.get("dataStreams", [])
+                        if (s.get("webStreamData") or {}).get("defaultUri")}
+    return out
+
+
+def guess_ga4_property(properties, stream_hosts, domain):
+    """The GA4 property whose website stream is this domain, or None."""
+    domain = domain.lower().removeprefix("www.")
+    for p in properties:
+        if domain in stream_hosts.get(p["id"], set()):
+            return p
+    return None
 
 
 # ---------------------------------------------------------------- pulling data

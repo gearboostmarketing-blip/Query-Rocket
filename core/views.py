@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import ai, metrics
+from .auth import staff_for_changes
 from .forms import ProfileForm, SiteForm
 from .models import Issue, Page, Site
 from .rules import rule
@@ -180,6 +181,7 @@ def profile_edit(request, site_id):
 
 
 @login_required
+@staff_for_changes
 @require_POST
 def site_delete(request, site_id):
     site = get_object_or_404(Site, id=site_id)

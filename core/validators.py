@@ -127,14 +127,42 @@ def validate_schema(value, ctx):
     ]
 
 
+def _outbound(value, ctx):
+    """A real https link to another website (a LinkedIn profile, a supplier, a review site)."""
+    from urllib.parse import urlparse
+    p = urlparse(value)
+    site_host = urlparse(ctx.get("url") or "").netloc.lower().removeprefix("www.")
+    return (p.scheme in ("http", "https") and "." in p.netloc and not p.username and " " not in value
+            and p.netloc.lower().removeprefix("www.") != site_host)
+
+
 def validate_link(value, ctx):
     live = set(ctx.get("live_urls", []))
-    return [_c("Replacement is a live page on this site (or removal)", value == "REMOVE" or value in live)]
+    if value == "REMOVE" or value in live:
+        return [_c("Replacement is a live page on this site (or removal)", True)]
+    if _outbound(value, ctx):
+        return [_c("Replacement is a valid link to another website", True),
+                _c("Outbound link: check it opens the page you meant", False,
+                   "Query Rocket can't confirm pages on other sites are live", hard=False)]
+    return [_c("Replacement is a live page on this site, a valid https link to another site, or removal", False)]
+
+
+def validate_noindex(value, ctx):
+    from urllib.parse import urlparse
+    path = urlparse(ctx.get("url") or "").path or "/"
+    clicks = sum(q.get("clicks", 0) for q in ctx.get("query_rows", []))
+    return [
+        _c("Not the homepage", path != "/"),
+        _c("Page isn't already noindex", "noindex" not in (ctx.get("robots_now") or "").lower()),
+        _c("Gets no clicks from Google", clicks == 0,
+           f"{clicks} clicks in the last 28 days would stop" if clicks else "", hard=False),
+    ]
 
 
 VALIDATORS = {
     "title": validate_title, "meta_description": validate_meta, "image_alt": validate_alt,
     "focus_keyword": validate_focus, "schema_local_business": validate_schema, "broken_link": validate_link,
+    "noindex": validate_noindex,
 }
 
 

@@ -8,7 +8,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from . import ai
+from . import ai, conf
 from .checks import run_checks
 from .crawler import Crawler
 from .models import CrawlRun, Page, Site
@@ -51,10 +51,14 @@ def crawl_site(self, run_id):
         run.issues_found = run_checks(site)
         run.status = CrawlRun.DONE
         run.stage = "Finished"
+        # Write fixes after every crawl. Autopilot does this itself (then applies what it trusts);
+        # with autopilot off they simply wait on the Fixes page for you.
         ap = getattr(site, "autopilot", None)
-        if ap and ap.enabled:
+        if ap and ap.enabled and not conf.get("AUTOPILOT_PAUSED"):
             from .tasks_autopilot import run_autopilot
             run_autopilot.delay(site.id)
+        elif ai.ai_enabled():
+            generate_site_fixes.delay(site.id)
     except Exception as exc:
         log.exception("Crawl %s failed", run_id)
         run.status = CrawlRun.FAILED
@@ -69,9 +73,16 @@ def _crawl(run, site):
         if n % 10 == 0:
             CrawlRun.objects.filter(id=run.id).update(pages_crawled=n)
 
+    from .plugin_fetch import PluginTransport, crawl_mode
+    via, _why = crawl_mode(site)
+    run.set_stage("Crawling through the WordPress plugin" if via == "plugin" else "Crawling", via=via)
     crawler = Crawler(
-        site.url, max_pages=site.max_pages, delay=settings.CRAWL_DELAY_SECONDS,
-        user_agent=settings.CRAWL_USER_AGENT, render_js=settings.CRAWL_RENDER_JS, progress=progress,
+        site.url, max_pages=site.max_pages, delay=float(conf.get("CRAWL_DELAY_SECONDS")),
+        user_agent=settings.CRAWL_USER_AGENT,
+        # A browser on the hub would be blocked the same way the crawler was, so no JS rendering through the plugin.
+        render_js=settings.CRAWL_RENDER_JS and via == "direct",
+        progress=progress,
+        transport=PluginTransport(site) if via == "plugin" else None,
     )
     result = crawler.run()
 
@@ -79,7 +90,10 @@ def _crawl(run, site):
     if ok_pages == 0:
         # Site down, blocked, or firewalled. Keep the last good data instead of wiping it.
         detail = result.errors[0] if result.errors else "no page returned 200"
-        raise RuntimeError(f"Couldn't load any pages from {site.url} ({detail}). Existing data was kept.")
+        hint = "" if via == "plugin" else (
+            " If a firewall or Cloudflare is blocking Query Rocket, connect the WordPress plugin (1.2 or newer)"
+            " and crawls will run from inside the site instead.")
+        raise RuntimeError(f"Couldn't load any pages from {site.url} ({detail}). Existing data was kept.{hint}")
 
     inbound = Counter()
     for data in result.pages.values():
@@ -137,6 +151,7 @@ def _understand(run, site):
                     site.save(update_fields=["profile", "profile_updated_at"])
             except Exception as exc:
                 log.warning("Profile step failed: %s", exc)
+                ai.record_error(site, exc)
 
         run.set_stage("Classifying pages")
         todo = [p for p in pages if p.classified_by != "ai"]
@@ -146,6 +161,7 @@ def _understand(run, site):
             run.save(update_fields=["ai_used"])
         except Exception as exc:
             log.warning("AI classification failed, using rules: %s", exc)
+            ai.record_error(site, exc)
             results = {}
     else:
         results = {}
@@ -166,15 +182,21 @@ def _understand(run, site):
 
 @shared_task
 def schedule_due_crawls():
-    cutoff = timezone.now() - timedelta(days=settings.CRAWL_INTERVAL_DAYS)
+    cutoff = timezone.now() - timedelta(days=int(conf.get("CRAWL_INTERVAL_DAYS")))
     for site in Site.objects.all():
         if site.last_crawled_at is None or site.last_crawled_at < cutoff:
             start_crawl(site)
 
-from . import tasks_apply, tasks_autopilot, tasks_google  # noqa: E402,F401  (register tasks with Celery)
+from . import tasks_apply, tasks_autopilot, tasks_google, tasks_local  # noqa: E402,F401  (register tasks with Celery)
 
 
 @shared_task(acks_late=True, time_limit=60 * 60)
 def generate_site_fixes(site_id):
     from .fixer import generate_fixes
     return generate_fixes(Site.objects.get(id=site_id))
+
+
+@shared_task(acks_late=True, time_limit=60 * 30)
+def find_lessons():
+    from .learning import find_lessons as run
+    return run()

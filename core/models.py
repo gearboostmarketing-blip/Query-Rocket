@@ -8,6 +8,14 @@ class Site(models.Model):
     name = models.CharField(max_length=200)
     url = models.URLField(help_text="Homepage URL, e.g. https://example.com/")
     max_pages = models.PositiveIntegerField(default=500)
+    # How pages are fetched. "auto" uses the WordPress plugin whenever it's connected and new enough.
+    CRAWL_AUTO, CRAWL_PLUGIN, CRAWL_DIRECT = "auto", "plugin", "direct"
+    CRAWL_CHOICES = [
+        (CRAWL_AUTO, "Through the plugin when connected"),
+        (CRAWL_PLUGIN, "Always through the plugin"),
+        (CRAWL_DIRECT, "Directly from Query Rocket"),
+    ]
+    crawl_via = models.CharField(max_length=10, choices=CRAWL_CHOICES, default=CRAWL_AUTO)
     created_at = models.DateTimeField(auto_now_add=True)
     last_crawled_at = models.DateTimeField(null=True, blank=True)
 
@@ -15,6 +23,24 @@ class Site(models.Model):
     profile = models.JSONField(default=dict, blank=True)
     profile_updated_at = models.DateTimeField(null=True, blank=True)
     profile_confirmed = models.BooleanField(default=False)
+
+    # Google Business listing (found through Google Places) and the map pack grid around it.
+    place_id = models.CharField(max_length=300, blank=True)
+    place_name = models.CharField(max_length=300, blank=True)
+    place_address = models.CharField(max_length=500, blank=True)
+    place_lat = models.FloatField(null=True, blank=True)
+    place_lng = models.FloatField(null=True, blank=True)
+    place_rating = models.FloatField(null=True, blank=True)
+    place_reviews = models.PositiveIntegerField(null=True, blank=True)
+    place_checked_at = models.DateTimeField(null=True, blank=True)
+    map_grid_size = models.PositiveSmallIntegerField(default=7)       # 5, 7, or 9 dots per side
+    map_spacing_miles = models.FloatField(default=1.0)                 # distance between dots
+
+    # Last fix-writing run, and the last AI problem (low credit, bad key, missing model), shown on the Fixes page.
+    fixes_run_at = models.DateTimeField(null=True, blank=True)
+    fixes_run_summary = models.CharField(max_length=300, blank=True)
+    ai_error = models.TextField(blank=True)
+    ai_error_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["name"]
@@ -45,6 +71,7 @@ class CrawlRun(models.Model):
     pages_crawled = models.PositiveIntegerField(default=0)
     issues_found = models.PositiveIntegerField(default=0)
     ai_used = models.BooleanField(default=False)
+    via = models.CharField(max_length=10, blank=True)  # "plugin" or "direct": how this crawl fetched pages
     error = models.TextField(blank=True)
     started_at = models.DateTimeField(default=timezone.now)
     finished_at = models.DateTimeField(null=True, blank=True)
@@ -257,11 +284,15 @@ class AnalyticsDaily(models.Model):
 # ============================================================ Phase 3: AI fixes
 
 class Fix(models.Model):
-    TITLE, META, ALT, FOCUS, SCHEMA, LINK = "title", "meta_description", "image_alt", "focus_keyword", "schema_local_business", "broken_link"
+    TITLE, META, ALT, FOCUS, SCHEMA, LINK, NOINDEX = (
+        "title", "meta_description", "image_alt", "focus_keyword", "schema_local_business", "broken_link", "noindex")
     KINDS = [
         (TITLE, "Title"), (META, "Meta description"), (ALT, "Image alt text"),
         (FOCUS, "Focus keyword"), (SCHEMA, "LocalBusiness schema"), (LINK, "Broken link"),
+        (NOINDEX, "Noindex page"),
     ]
+    # Never applied by autopilot, whatever the track record.
+    HUMAN_ONLY = (LINK, NOINDEX)
     PROPOSED, REJECTED, APPROVED, APPLYING, APPLIED, VERIFIED, FAILED, REVERTED, SUPERSEDED = (
         "proposed", "rejected", "approved", "applying", "applied", "verified", "failed", "reverted", "superseded")
     STATUSES = [
@@ -288,8 +319,15 @@ class Fix(models.Model):
     source_issue = models.CharField(max_length=60, blank=True)
 
     status = models.CharField(max_length=12, choices=STATUSES, default=PROPOSED)
-    decided_by = models.CharField(max_length=12, blank=True)   # "you", "reviewer", "autopilot"
+    # "you", "override" (you approved what the checks or reviewer didn't; never counts toward autopilot), "reviewer", "autopilot"
+    decided_by = models.CharField(max_length=12, blank=True)
+    # Which person approved, rejected, or overrode it (with more than one login).
+    decided_user = models.ForeignKey("auth.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     human_edited = models.BooleanField(default=False)
+    # Learning: what the AI first wrote (kept when you edit), why you rejected it, and which lessons it followed.
+    original_value = models.TextField(blank=True)
+    reject_reason = models.CharField(max_length=500, blank=True)
+    lessons_used = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     decided_at = models.DateTimeField(null=True, blank=True)
     applied_at = models.DateTimeField(null=True, blank=True)
@@ -353,3 +391,177 @@ class Autopilot(models.Model):
     max_per_run = models.PositiveIntegerField(default=25)
     last_run_at = models.DateTimeField(null=True, blank=True)
     last_run_summary = models.TextField(blank=True)
+
+
+# ============================================================ App settings (edited on the Settings page)
+
+class AppSettings(models.Model):
+    """One row. Any value left blank falls back to .env, so existing setups keep working unchanged."""
+    anthropic_key_enc = models.TextField(blank=True)
+    ai_model_profile = models.CharField(max_length=80, blank=True)
+    ai_model_classify = models.CharField(max_length=80, blank=True)
+
+    google_client_id = models.CharField(max_length=300, blank=True)
+    google_client_secret_enc = models.TextField(blank=True)
+
+    report_email_to = models.TextField(blank=True, help_text="Comma-separated")
+    email_from = models.CharField(max_length=200, blank=True)
+    smtp_host = models.CharField(max_length=200, blank=True)
+    smtp_port = models.PositiveIntegerField(null=True, blank=True)
+    smtp_user = models.CharField(max_length=200, blank=True)
+    smtp_password_enc = models.TextField(blank=True)
+    smtp_tls = models.BooleanField(null=True, blank=True)
+
+    crawl_interval_days = models.PositiveIntegerField(null=True, blank=True)
+    crawl_delay_seconds = models.FloatField(null=True, blank=True)
+    default_max_pages = models.PositiveIntegerField(null=True, blank=True)
+    fix_max_per_run = models.PositiveIntegerField(null=True, blank=True)
+    autopilot_paused = models.BooleanField(null=True, blank=True)
+
+    setup_hidden = models.BooleanField(default=False)
+    lessons_checked_at = models.DateTimeField(null=True, blank=True)
+    google_maps_key_enc = models.TextField(blank=True)
+    openai_key_enc = models.TextField(blank=True)
+    perplexity_key_enc = models.TextField(blank=True)
+    gemini_key_enc = models.TextField(blank=True)
+    openai_model = models.CharField(max_length=80, blank=True)
+    gemini_model = models.CharField(max_length=80, blank=True)
+    perplexity_model = models.CharField(max_length=80, blank=True)
+    ai_visibility_runs = models.PositiveSmallIntegerField(null=True, blank=True)
+    lessons_check_summary = models.CharField(max_length=300, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.CharField(max_length=150, blank=True)
+
+    class Meta:
+        verbose_name = verbose_name_plural = "App settings"
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+# ============================================================ Learning
+
+class Lesson(models.Model):
+    """Something Query Rocket learned from your decisions or from results. Only active lessons change how fixes are written."""
+    SUGGESTED, ACTIVE, DISMISSED = "suggested", "active", "dismissed"
+    STATUSES = [(SUGGESTED, "Waiting for you"), (ACTIVE, "In use"), (DISMISSED, "Dismissed")]
+    EDITS, REJECTIONS, OVERRIDES, RESULTS = "edits", "rejections", "overrides", "results"
+    SOURCES = [(EDITS, "Your edits"), (REJECTIONS, "Your rejections"), (OVERRIDES, "Your overrides"), (RESULTS, "28-day results")]
+
+    kind = models.CharField(max_length=30, choices=Fix.KINDS)
+    site = models.ForeignKey(Site, on_delete=models.CASCADE, null=True, blank=True, related_name="lessons",
+                             help_text="Empty: applies to every site")
+    text = models.TextField(help_text="The instruction the AI follows")
+    why = models.TextField(blank=True, help_text="The evidence, in plain words")
+    source = models.CharField(max_length=12, choices=SOURCES)
+    evidence = models.JSONField(default=dict, blank=True)   # {"fix_ids": [...], "support": n, "stats": {...}}
+    status = models.CharField(max_length=10, choices=STATUSES, default=SUGGESTED)
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decided_user = models.ForeignKey("auth.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    edited = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["kind", "-created_at"]
+        indexes = [models.Index(fields=["status", "kind"])]
+
+    def __str__(self):
+        return self.text[:80]
+
+
+# ============================================================ Map pack coverage
+
+class MapKeyword(models.Model):
+    site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name="map_keywords")
+    keyword = models.CharField(max_length=200)
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["keyword"]
+        constraints = [models.UniqueConstraint(fields=["site", "keyword"], name="unique_map_keyword")]
+
+    def __str__(self):
+        return self.keyword
+
+    @property
+    def latest(self):
+        return self.scans.filter(status=MapScan.DONE).first()
+
+
+class MapScan(models.Model):
+    QUEUED, RUNNING, DONE, FAILED = "queued", "running", "done", "failed"
+    keyword = models.ForeignKey(MapKeyword, on_delete=models.CASCADE, related_name="scans")
+    status = models.CharField(max_length=10, default=QUEUED)
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    center_lat = models.FloatField()
+    center_lng = models.FloatField()
+    grid_size = models.PositiveSmallIntegerField()
+    spacing_miles = models.FloatField()
+    points = models.JSONField(default=list, blank=True)   # [{"lat", "lng", "rank" (None = not in top 20), "top": [place ids]}]
+    avg_rank = models.FloatField(null=True, blank=True)    # counting "not found" as 21
+    top3_pct = models.FloatField(null=True, blank=True)
+    found_pct = models.FloatField(null=True, blank=True)
+    competitors = models.JSONField(default=list, blank=True)  # [{"name", "place_id", "top3", "first"}]
+    error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class PlaceName(models.Model):
+    """Cache of business names for Google place IDs, so competitor names are looked up once."""
+    place_id = models.CharField(max_length=300, primary_key=True)
+    name = models.CharField(max_length=300)
+    fetched_at = models.DateTimeField(auto_now=True)
+
+
+# ============================================================ AI visibility
+
+class AIPrompt(models.Model):
+    site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name="ai_prompts")
+    text = models.CharField(max_length=400)
+    active = models.BooleanField(default=True)
+    added_by = models.CharField(max_length=10, default="ai")  # "ai" or "you"
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+
+class AIScan(models.Model):
+    QUEUED, RUNNING, DONE, FAILED = "queued", "running", "done", "failed"
+    site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name="ai_scans")
+    status = models.CharField(max_length=10, default=QUEUED)
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    engines = models.JSONField(default=list, blank=True)
+    summary = models.JSONField(default=dict, blank=True)
+    progress = models.CharField(max_length=100, blank=True)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class AIAnswer(models.Model):
+    scan = models.ForeignKey(AIScan, on_delete=models.CASCADE, related_name="answers")
+    prompt = models.ForeignKey(AIPrompt, on_delete=models.SET_NULL, null=True, related_name="answers")
+    prompt_text = models.CharField(max_length=400)
+    engine = models.CharField(max_length=20)
+    run = models.PositiveSmallIntegerField(default=1)
+    text = models.TextField(blank=True)
+    citations = models.JSONField(default=list, blank=True)   # URLs or domains
+    mentioned = models.BooleanField(default=False)
+    position = models.PositiveSmallIntegerField(null=True, blank=True)   # 1 = first business named
+    cited = models.BooleanField(default=False)
+    sentiment = models.CharField(max_length=10, blank=True)
+    businesses = models.JSONField(default=list, blank=True)  # names in the order the answer gives them
+    wrong_facts = models.JSONField(default=list, blank=True)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["prompt_text", "engine", "run"]

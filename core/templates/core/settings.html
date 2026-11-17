@@ -1,0 +1,93 @@
+{% extends "core/base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Settings</h1>
+    <p class="sub">Saved here, these replace what's in the server's <code>.env</code> file, and take effect within a minute. Leave a field blank to use the <code>.env</code> value (shown in grey).{% if app.updated_by %} Last changed by {{ app.updated_by }} {{ app.updated_at|timesince }} ago.{% endif %}</p>
+  </div>
+  <a class="btn btn-ghost" href="{% url 'setup' %}">Setup checklist</a>
+</div>
+
+<nav class="tabs" aria-label="Settings sections">
+  <a href="#ai">AI</a><a href="#google">Google</a><a href="#email">Email</a><a href="#maps">Maps</a><a href="#engines">AI engines</a><a href="#crawl">Crawling</a><a href="#autopilot">Autopilot</a><a href="#team">Team</a>
+</nav>
+
+<form method="post" class="panel" id="ai">{% csrf_token %}{% with form=forms.ai %}{{ form.section }}
+  <div class="panel-head"><h2>AI</h2><span class="small muted">{% if key_source == "app" %}Key saved here{% elif key_source == "env" %}Key from .env{% else %}No key yet{% endif %}</span></div>
+  <p class="muted small">Get a key at console.anthropic.com, under API keys. In use now: <code>{{ models_now.0 }}</code> for writing and review, <code>{{ models_now.1 }}</code> for sorting pages.</p>
+  <div class="form-grid">{% for f in form %}{% if not f.is_hidden %}{% include "core/_field.html" %}{% endif %}{% endfor %}</div>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Save</button>
+    <button class="btn btn-ghost" type="submit" form="test-ai">Test AI</button></div>
+{% endwith %}</form>
+<form method="post" action="{% url 'settings_test' 'ai' %}" id="test-ai">{% csrf_token %}</form>
+
+<form method="post" class="panel" id="google">{% csrf_token %}{% with form=forms.google %}{{ form.section }}
+  <div class="panel-head"><h2>Google sign-in</h2><span class="small muted">{% if google_secret_source == "app" %}Secret saved here{% elif google_secret_source == "env" %}Secret from .env{% else %}Not set up{% endif %}</span></div>
+  <p class="muted small">From Google Cloud, APIs &amp; Services, Credentials (deploy guide, step 8). The authorized redirect URI must be exactly: <code style="overflow-wrap:anywhere">{{ redirect_uri }}</code></p>
+  <div class="form-grid">{% for f in form %}{% if not f.is_hidden %}{% include "core/_field.html" %}{% endif %}{% endfor %}</div>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Save</button><a class="btn btn-ghost" href="{% url 'google_home' %}">Google accounts</a></div>
+{% endwith %}</form>
+
+<form method="post" class="panel" id="email">{% csrf_token %}{% with form=forms.email %}{{ form.section }}
+  <div class="panel-head"><h2>Weekly report email</h2><span class="small muted">{% if smtp_password_source == "app" %}Password saved here{% elif smtp_password_source == "env" %}Password from .env{% endif %}</span></div>
+  <p class="muted small">Sent Monday at 7 a.m. Each person can also turn it on or off for themselves on their Account page.</p>
+  <div class="form-grid">{% for f in form %}{% if not f.is_hidden %}{% include "core/_field.html" %}{% endif %}{% endfor %}</div>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Save</button>
+    <button class="btn btn-ghost" type="submit" form="test-email">Send me a test</button>
+    <a class="btn btn-ghost" href="{% url 'report_preview' %}">Preview the report</a></div>
+{% endwith %}</form>
+<form method="post" action="{% url 'settings_test' 'email' %}" id="test-email">{% csrf_token %}</form>
+
+<form method="post" class="panel" id="maps">{% csrf_token %}{% with form=forms.maps %}{{ form.section }}
+  <div class="panel-head"><h2>Map pack coverage</h2><span class="small muted">{% if key_status.GOOGLE_MAPS_API_KEY == "app" %}Key saved here{% elif key_status.GOOGLE_MAPS_API_KEY == "env" %}Key from .env{% else %}No key yet{% endif %}</span></div>
+  <p class="muted small">The grid uses Google's ID-only place search, which Google doesn't charge for. Use the same Google Cloud project as sign-in; restrict the key to Places API (New).</p>
+  <div class="form-grid">{% for f in form %}{% if not f.is_hidden %}{% include "core/_field.html" %}{% endif %}{% endfor %}</div>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Save</button></div>
+{% endwith %}</form>
+
+<form method="post" class="panel" id="engines">{% csrf_token %}{% with form=forms.engines %}{{ form.section }}
+  <div class="panel-head"><h2>AI visibility engines</h2><span class="small muted">{% if key_status.OPENAI_API_KEY %}ChatGPT ✓ {% endif %}{% if key_status.PERPLEXITY_API_KEY %}Perplexity ✓ {% endif %}{% if key_status.GEMINI_API_KEY %}Gemini ✓ {% endif %}{% if key_source %}Claude ✓{% endif %}</span></div>
+  <p class="muted small">Each key turns on one engine for AI visibility scans. Keys are only used for those scans. Leave a key blank to keep the saved one.</p>
+  <div class="form-grid">{% for f in form %}{% if not f.is_hidden %}{% include "core/_field.html" %}{% endif %}{% endfor %}</div>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Save</button></div>
+{% endwith %}</form>
+
+<form method="post" class="panel" id="crawl">{% csrf_token %}{% with form=forms.crawl %}{{ form.section }}
+  <div class="panel-head"><h2>Crawling and fixes</h2></div>
+  <div class="form-grid">{% for f in form %}{% if not f.is_hidden %}{% include "core/_field.html" %}{% endif %}{% endfor %}</div>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Save</button></div>
+{% endwith %}</form>
+
+<form method="post" class="panel" id="autopilot">{% csrf_token %}<input type="hidden" name="section" value="autopilot">
+  <div class="panel-head"><h2>Autopilot emergency stop</h2><span class="small" style="color:{% if paused %}var(--orange){% else %}var(--green){% endif %}">{% if paused %}Paused everywhere{% else %}Running where it's on{% endif %}</span></div>
+  <p class="muted small">Stops autopilot on every site at once. Fixes still get written and wait for you; nothing is applied on its own until you resume.{% if paused_by_env %} Paused by AUTOPILOT_PAUSED in .env.{% endif %}</p>
+  {% if paused %}<input type="hidden" name="paused" value="0"><button class="btn btn-primary" type="submit">Resume autopilot</button>
+  {% else %}<input type="hidden" name="paused" value="1"><button class="btn btn-danger" type="submit" onclick="return confirm('Pause autopilot on every site?')">Pause autopilot everywhere</button>{% endif %}
+</form>
+
+<section class="panel" id="team">
+  <div class="panel-head"><h2>Team</h2></div>
+  <p class="muted small">Everyone can see every site, run crawls, and approve fixes; fixes record who approved them. Only people who can change settings can also connect WordPress or Google, turn autopilot on or off, remove sites, and add people.</p>
+  <div class="table-wrap" style="margin-bottom:16px">
+    <table>
+      <thead><tr><th>Person</th><th>Email</th><th>Can change settings</th><th>Last login</th><th></th></tr></thead>
+      <tbody>{% for u in users %}
+        <tr{% if not u.is_active %} class="muted"{% endif %}>
+          <td>{{ u.get_full_name|default:u.username }}{% if u.get_full_name %} <span class="muted small">{{ u.username }}</span>{% endif %}{% if u == request.user %} <span class="tag">You</span>{% endif %}</td>
+          <td>{{ u.email|default:"–" }}</td>
+          <td>{% if u.is_staff %}Yes{% else %}No{% endif %}</td>
+          <td>{% if not u.is_active %}Removed{% elif u.last_login %}{{ u.last_login|timesince }} ago{% else %}Never{% endif %}</td>
+          <td>{% if u != request.user and u.is_active %}<form method="post" action="{% url 'user_remove' u.id %}" onsubmit="return confirm('Remove {{ u.username|escapejs }}? They won\'t be able to log in.');">{% csrf_token %}<button class="linkish" type="submit">Remove</button></form>{% endif %}</td>
+        </tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  <details>
+    <summary class="btn btn-ghost">Add a person</summary>
+    <form method="post" action="{% url 'user_add' %}" style="margin-top:14px">{% csrf_token %}
+      <div class="form-grid">{% for f in add_user %}{% include "core/_field.html" %}{% endfor %}</div>
+      <button class="btn btn-primary" type="submit">Add</button>
+    </form>
+  </details>
+</section>
+{% endblock %}

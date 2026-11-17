@@ -354,7 +354,7 @@ docker compose exec web python manage.py collectstatic --noinput
 docker compose exec web python manage.py createsuperuser
 ```
 
-Then run the built-in tests. All 31 should pass in a few seconds; if any fail, send me the output before going further:
+Then run the built-in tests. All 84 should pass in a few seconds; if any fail, send me the output before going further:
 
 ```bash
 docker compose exec web python manage.py test core
@@ -693,6 +693,54 @@ Test this first on an OXpress-built page you don't mind breaking. Approve one al
 | Connection stops after 7 days | Your Google OAuth app is still in Testing. Publish it to production (deploy Step 8) and reconnect. |
 | Property not in the list | That Google account can't see it. Get added as a user in the client's Search Console / GA4, then reload. |
 | No data yet | Search Console data lags 2 to 3 days; brand-new properties may have none. |
+| Connected Google but nothing synced | On **Google**, click **Match unlinked sites**. Sites Query Rocket can't match show "Problem" with the reason: usually the Google account you connected isn't a user on that site's Search Console or GA4. Add it in Google, or click the site and pick the properties by hand. |
+
+### Settings, Setup, and Account pages
+
+- **Setup** (left menu, until everything's done) checks each step live: worker, AI, Google, email, plugin and Google data on every site, and confirmed profiles. Each open step links straight to where you fix it.
+- **Settings** (owners only) changes the AI key and models, Google sign-in, the weekly email and its SMTP server, crawl and fix limits, and the autopilot emergency stop, without touching `.env`. A blank field uses `.env`. Keys and passwords are stored encrypted. **Test AI** and **Send me a test** check them right away. **Team** adds and removes logins; fixes record who approved them. Team members without settings access can see everything, run crawls, and approve fixes, but only owners can connect WordPress or Google, turn autopilot on or off, or remove a site.
+- **Account** (your name, bottom left) changes your name, email, and password, and turns the Monday report on or off for you.
+
+### Learning (owners only)
+
+Query Rocket learns from you. Every edit (it keeps what the AI first wrote), every rejection (add a few words on why: it's optional and the fastest way to teach it), every override, and every 28-day result is evidence. Every Sunday night, or when you click **Look for new lessons**, it turns patterns into suggested lessons, like "Put the town before the service."
+
+- A lesson changes nothing until you click **Use this lesson**. You can reword it first.
+- Lessons in use are given to both the AI writer and the AI reviewer, and every fix records which lessons it followed.
+- The page reports whether it's working: approved-as-written rate by month and by fix type, each lesson's rate with it vs. before, 28-day click results, and the most common rejection reasons. Turn off any lesson that isn't helping.
+
+### Map pack coverage and AI visibility (each site's page)
+
+**Map pack.** Add a Google Maps API key in Settings (Google Cloud: enable **Places API (New)**, create a key, restrict it to that API). On a site, tap **Map pack**, then **Find it on Google** and pick the listing. Add 1 to 5 keywords without the town ("brake repair"). Each scan searches Google from every dot on the grid (7×7 = 49 searches) using Google's free ID-only search, so it costs nothing. You get % of the area in the top 3, average rank, a color map, last month for comparison, and the businesses in the map pack instead. It's Google's own place ranking, labeled as an estimate: the Maps app also weighs each person's history and shows ads. **Local strength** under the map scores what Query Rocket can see (listing, reviews, schema, phone, town in titles, service and town pages) and says what to fix.
+
+**AI visibility.** Add engine keys in Settings: OpenAI (ChatGPT), Perplexity, Gemini. Claude uses your Anthropic key. On a site, tap **AI visibility**, then **Write questions for me**, remove any that don't fit, and **Scan now**. Each question is asked of each engine 2 times (Settings changes this) with live web search. You get how often the business is mentioned, its website cited, its position, how it's described, wrong facts, who's named instead, and which sources the AI trusted instead. Expect a few dollars of API usage per site per scan.
+
+Both run monthly on their own (3:40 a.m. check), and any time with the scan buttons.
+
+### Results (left menu)
+
+One place for every Query Rocket number, laid out like a GA4 exploration. Pick a site (or all sites) and a date range, and leave
+**Compare with previous period** on to see the change. Ranges end 3 days ago because Search Console data runs behind.
+
+- **Overview:** clicks, impressions, CTR, average position, organic sessions, and key events, with change vs the period before.
+  Tap any number to chart it. The dashed line is the previous period; triangles mark days fixes went live.
+- **Pages:** every page's search and GA4 numbers, with its change and how many fixes were applied. Filter by address or page type.
+- **Searches:** the searches each page shows up for (last 28 days). Filter positions 5 to 20 for the best opportunities.
+- **Fixes:** every fix with its 28-day result. Net effect = the page's change minus the whole site's, so seasonal swings cancel out.
+  Switch **Show** to totals by fix type, site, who decided, outcome, or month.
+- **Map pack** and **AI visibility:** every scan over time, with the change since the last one.
+
+Tap any column heading to sort. **Export CSV** downloads exactly what's on screen (all rows, not just the first 500), and opens in Excel or Google Sheets. The page address keeps your filters, so you can bookmark a view.
+
+### On your phone
+
+Query Rocket works on a phone: a bottom bar for Sites, Fixes, and Google, and a menu with every client.
+To get it as an app icon:
+
+- **iPhone (Safari):** open your hub address, log in, tap **Share**, then **Add to Home Screen**.
+- **Android (Chrome):** open your hub address, log in, tap the **⋮** menu, then **Install app** (or **Add to Home screen**).
+
+It opens full screen like an app. It always shows live data, so it needs an internet connection.
 
 ### WordPress connection and fixes
 
@@ -704,7 +752,11 @@ Test this first on an OXpress-built page you don't mind breaking. Approve one al
 | "The site redirects to…" | Update the site's homepage URL in Query Rocket (via `/admin/`, Sites) to the address it names. |
 | Fix failed: field changed on the site | Someone edited that field by hand. Recrawl, and Query Rocket will propose again based on the new value. |
 | Applied but not verified | A theme, page builder, or other SEO plugin is overriding Rank Math's output, or a CDN cache hasn't cleared. Check the live page source. |
+| Link fix: "This page is built with Oxygen" | The link lives in Oxygen's builder data. Turn on page builder edits on both sides (Part 6), or fix it in Oxygen. |
+| Red "AI problem" bar on the Fixes page | It says what's wrong: low Anthropic credit, a bad key, or a retired model name. Fix that, then click **Find new fixes**. |
 | Link fix: "isn't in this page's editable content" | The link lives in a menu, footer, widget, or Oxygen data. Fix it by hand, or enable Oxygen edits (Part 6). |
+| Crawl fails with "Couldn't load any pages" (403, blocked, timed out) | A firewall, Cloudflare, or security plugin is blocking the hub's crawler. Install Connector 1.2 or newer and connect it: crawls then run from inside the site. On the site's WordPress connection screen, **How crawls run** shows which way the last crawl went. |
+| "This site couldn't load its own page" | The site can't reach itself. Usually the host blocks loopback requests; ask Cloudways support to allow the server to request its own domain. |
 
 ### Anything else
 

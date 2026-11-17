@@ -1,0 +1,113 @@
+{% extends "core/base.html" %}
+{% block title %}Learning{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Learning</h1>
+    <p class="sub">What Query Rocket is learning from your edits, rejections, overrides, and 28-day results. A lesson only changes how fixes are written after you approve it. Only owners see this page.</p>
+  </div>
+  <form method="post" action="{% url 'lessons_find' %}">{% csrf_token %}<button class="btn btn-primary" type="submit" {% if not ai_enabled %}disabled title="Needs AI"{% endif %}>Look for new lessons</button></form>
+</div>
+<p class="muted small" style="margin-top:-12px">{% if app.lessons_checked_at %}Last checked {{ app.lessons_checked_at|timesince }} ago: {{ app.lessons_check_summary }}{% else %}Checks run every Sunday night, or now with the button.{% endif %}</p>
+
+<section class="panel">
+  <div class="panel-head"><h2>Your decisions so far</h2><span class="muted small">{{ rep.totals.total }} fixes decided by a person</span></div>
+  <div class="kpis">
+    <div><span class="k">Approved as written</span><span class="v">{% if rep.totals.as_is is not None %}{{ rep.totals.as_is }}%{% else %}–{% endif %}</span><span class="d muted">the AI got it right</span></div>
+    <div><span class="k">Edited, then approved</span><span class="v">{% if rep.totals.edited is not None %}{{ rep.totals.edited }}%{% else %}–{% endif %}</span><span class="d muted">close, but not quite</span></div>
+    <div><span class="k">Rejected</span><span class="v">{% if rep.totals.rejected is not None %}{{ rep.totals.rejected }}%{% else %}–{% endif %}</span><span class="d muted">wrong call</span></div>
+    <div><span class="k">Overridden</span><span class="v">{% if rep.totals.override is not None %}{{ rep.totals.override }}%{% else %}–{% endif %}</span><span class="d muted">the app was too strict</span></div>
+  </div>
+  <h3 style="margin:20px 0 10px">Month by month</h3>
+  <div class="trend" role="img" aria-label="Fixes decided each month and the share approved as written">
+    {% for m in rep.months %}
+    <div class="trend-col">
+      <span class="trend-val">{% if m.as_is is not None %}{{ m.as_is }}%{% else %}–{% endif %}</span>
+      <div class="trend-bar"><span style="height:{{ m.height }}%"></span></div>
+      <span class="trend-lbl">{{ m.label }}<br><span class="muted">{{ m.total }}</span></span>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="muted small" style="margin:8px 0 0">Bar height: fixes you decided that month. Number on top: share approved as written. Rising numbers mean the AI is learning your standard.</p>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Waiting for you</h2><span class="count-pill">{{ suggested|length }}</span></div>
+  {% for l in suggested %}
+  <form method="post" action="{% url 'lesson_action' l.id %}" class="lesson">{% csrf_token %}
+    <div class="lesson-meta"><span class="tag">{{ l.get_kind_display }}</span><span class="small muted">{% if l.site %}{{ l.site.name }} only{% else %}Every site{% endif %} · from {{ l.get_source_display|lower }}{% if l.evidence.support %} · {{ l.evidence.support }} decisions{% endif %}</span></div>
+    <label class="sr-only" for="lt-{{ l.id }}">Lesson</label>
+    <textarea id="lt-{{ l.id }}" name="text" rows="2">{{ l.text }}</textarea>
+    <p class="small muted" style="margin:6px 0 10px">{{ l.why }}</p>
+    <div class="form-actions"><button class="btn btn-primary" name="action" value="approve" type="submit">Use this lesson</button>
+      <button class="btn btn-ghost" name="action" value="dismiss" type="submit">Dismiss</button></div>
+  </form>
+  {% empty %}
+  <p class="muted" style="margin:0">Nothing waiting. New lessons show up after enough decisions (at least 4 edits, rejections, or overrides of one fix type) or once 28-day results come in.</p>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>In use</h2><span class="count-pill">{{ active|length }}</span></div>
+  {% for l in active %}
+  <form method="post" action="{% url 'lesson_action' l.id %}" class="lesson">{% csrf_token %}
+    <div class="lesson-meta"><span class="tag">{{ l.get_kind_display }}</span><span class="small muted">{% if l.site %}{{ l.site.name }} only{% else %}Every site{% endif %} · on since {{ l.decided_at|date:"M j" }}{% if l.decided_user %} by {{ l.decided_user.first_name|default:l.decided_user.username }}{% endif %}{% if l.edited %} · reworded by you{% endif %}</span></div>
+    <label class="sr-only" for="la-{{ l.id }}">Lesson</label>
+    <textarea id="la-{{ l.id }}" name="text" rows="2">{{ l.text }}</textarea>
+    <p class="small" style="margin:6px 0 10px">
+      {% if l.impact.used %}Used in {{ l.impact.used }} fix{{ l.impact.used|pluralize:"es" }}.
+        {% if l.impact.with.total %}Approved as written: <b style="color:var(--white)">{{ l.impact.with.as_is }}%</b> with it{% if l.impact.before.total %}, vs {{ l.impact.before.as_is }}% before{% endif %}.{% endif %}
+      {% else %}<span class="muted">Not used yet. It applies to the next {{ l.get_kind_display|lower }} fixes written.</span>{% endif %}
+    </p>
+    <div class="form-actions"><button class="btn btn-ghost" name="action" value="save" type="submit">Save wording</button>
+      <button class="btn btn-ghost" name="action" value="turn_off" type="submit">Turn off</button></div>
+  </form>
+  {% empty %}
+  <p class="muted" style="margin:0">No lessons in use yet.</p>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>By fix type</h2></div>
+  <div class="table-wrap" style="border:0;background:none">
+    <table>
+      <thead><tr><th>Fix type</th><th class="num">As written, last 30 days</th><th class="num">As written, all time</th><th class="num">Edited</th><th class="num">Rejected</th><th class="num">Overridden</th><th class="num">By autopilot</th><th class="num">Gained clicks</th></tr></thead>
+      <tbody>{% for k in rep.by_kind %}
+        <tr><td>{{ k.label }}</td>
+          <td class="num">{% if k.recent.total %}{{ k.recent.as_is }}% <span class="muted small">of {{ k.recent.total }}</span>{% else %}<span class="muted">–</span>{% endif %}</td>
+          <td class="num">{% if k.all.total %}{{ k.all.as_is }}% <span class="muted small">of {{ k.all.total }}</span>{% else %}<span class="muted">–</span>{% endif %}</td>
+          <td class="num">{% if k.all.total %}{{ k.all.edited }}%{% else %}<span class="muted">–</span>{% endif %}</td>
+          <td class="num">{% if k.all.total %}{{ k.all.rejected }}%{% else %}<span class="muted">–</span>{% endif %}</td>
+          <td class="num">{% if k.all.total %}{{ k.all.override }}%{% else %}<span class="muted">–</span>{% endif %}</td>
+          <td class="num">{{ k.autopilot }}</td>
+          <td class="num">{% if k.results.measured %}{{ k.results.improved_pct }}% <span class="muted small">of {{ k.results.measured }} ({{ k.results.worse }} worse)</span>{% else %}<span class="muted">–</span>{% endif %}</td>
+        </tr>
+      {% empty %}<tr><td colspan="8" class="muted">No fixes yet.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Why fixes were rejected</h2></div>
+  {% for r in rep.reasons %}
+  <div class="issue-item"><div class="it" style="font-weight:400">{{ r.reason }} <span class="count-pill">{{ r.count }}</span></div><div class="small muted">{{ r.kinds }}</div></div>
+  {% empty %}
+  <p class="muted" style="margin:0">No reasons yet. When you reject a fix, a few words on why (optional) are the fastest way to teach Query Rocket.</p>
+  {% endfor %}
+</section>
+
+{% if dismissed %}
+<details class="panel">
+  <summary style="cursor:pointer"><b>Dismissed and turned off</b> <span class="muted small">({{ dismissed|length }})</span></summary>
+  {% for l in dismissed %}
+  <form method="post" action="{% url 'lesson_action' l.id %}" class="lesson">{% csrf_token %}
+    <div class="lesson-meta"><span class="tag">{{ l.get_kind_display }}</span></div>
+    <p style="margin:6px 0">{{ l.text }}</p>
+    <button class="btn btn-ghost" name="action" value="resume" type="submit">Use it after all</button>
+  </form>
+  {% endfor %}
+</details>
+{% endif %}
+
+<p class="muted small">Coming with the SaaS version: other agencies can opt in to share anonymized patterns (fix type, page type, decision, result; never client names, addresses, or page text), and lessons learned across everyone show up here for you to approve.</p>
+{% endblock %}
